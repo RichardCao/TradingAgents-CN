@@ -333,7 +333,12 @@ const downloadReport = async (report: any, format: string = 'markdown') => {
     // 显示详细错误信息
     if (error.message && error.message.includes('pandoc')) {
       ElMessage.error({
-        message: 'PDF/Word 导出需要安装 pandoc 工具',
+        message: 'Word 导出需要安装 pandoc 工具',
+        duration: 5000
+      })
+    } else if (error.message && (error.message.includes('pdfkit') || error.message.includes('wkhtmltopdf'))) {
+      ElMessage.error({
+        message: 'PDF 导出需要安装 pdfkit 和 wkhtmltopdf',
         duration: 5000
       })
     } else {

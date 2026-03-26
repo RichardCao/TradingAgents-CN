@@ -399,7 +399,12 @@ const downloadReport = async (format: string = 'markdown') => {
     // 显示详细错误信息
     if (error.message && error.message.includes('pandoc')) {
       ElMessage.error({
-        message: 'PDF/Word 导出需要安装 pandoc 工具',
+        message: 'Word 导出需要安装 pandoc 工具',
+        duration: 5000
+      })
+    } else if (error.message && (error.message.includes('pdfkit') || error.message.includes('wkhtmltopdf'))) {
+      ElMessage.error({
+        message: 'PDF 导出需要安装 pdfkit 和 wkhtmltopdf',
         duration: 5000
       })
     } else {
@@ -839,10 +844,50 @@ const getModuleDisplayName = (moduleName: string) => {
   return nameMap[moduleName] || moduleName.replace(/_/g, ' ')
 }
 
+const normalizeDisplayReportContent = (content: string) => {
+  const titleMap: Record<string, string> = {
+    market_report: '市场技术分析',
+    sentiment_report: '市场情绪分析',
+    news_report: '新闻事件分析',
+    fundamentals_report: '基本面分析',
+    bull_researcher: '多头研究观点',
+    bear_researcher: '空头研究观点',
+    research_team_decision: '研究经理综合决策',
+    trader_investment_plan: '交易员执行计划',
+    risky_analyst: '激进风险评估',
+    safe_analyst: '保守风险评估',
+    neutral_analyst: '中性风险评估',
+    risk_management_decision: '风险管理决策',
+    final_trade_decision: '最终交易决策'
+  }
+
+  let normalized = content.trim()
+  Object.entries(titleMap).forEach(([key, title]) => {
+    const aliases = [
+      key,
+      key.replace(/_/g, ' '),
+      key === 'risky_analyst' ? 'aggressive analyst' : '',
+      key === 'safe_analyst' ? 'conservative analyst' : '',
+      key === 'neutral_analyst' ? 'neutral analyst' : ''
+    ].filter(Boolean)
+
+    aliases.forEach((alias) => {
+      const pattern = new RegExp(`^(#{1,6}\\\\s*)?${alias.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&')}\\\\s*$`, 'gim')
+      normalized = normalized.replace(pattern, `## ${title}`)
+    })
+  })
+
+  normalized = normalized.replace(/^\s*[0-9一二三]+[\)\.、：:\-）]\s*(aggressive(?:\s+analyst|\s+risk\s+assessment)?|risky(?:\s+analyst)?)\s*$/gim, '### 激进风险评估')
+  normalized = normalized.replace(/^\s*[0-9一二三]+[\)\.、：:\-）]\s*(conservative(?:\s+analyst|\s+risk\s+assessment)?|safe(?:\s+analyst)?)\s*$/gim, '### 保守风险评估')
+  normalized = normalized.replace(/^\s*[0-9一二三]+[\)\.、：:\-）]\s*(neutral(?:\s+analyst|\s+risk\s+assessment)?)\s*$/gim, '### 中性风险评估')
+
+  return normalized
+}
+
 const renderMarkdown = (content: string) => {
   if (!content) return ''
   try {
-    return marked.parse(content) as string
+    return marked.parse(normalizeDisplayReportContent(content)) as string
   } catch (e) {
     return `<pre style="white-space: pre-wrap; font-family: inherit;">${content}</pre>`
   }

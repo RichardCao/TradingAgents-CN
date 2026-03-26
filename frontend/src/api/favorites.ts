@@ -5,6 +5,7 @@ export interface FavoriteItem {
   stock_code?: string  // 兼容字段（已废弃）
   stock_name: string
   market: string
+  currency?: string
   board?: string
   exchange?: string
   added_at?: string
@@ -15,6 +16,10 @@ export interface FavoriteItem {
   current_price?: number | null
   change_percent?: number | null
   volume?: number | null
+  price_display_mode?: string | null
+  price_display_hint?: string | null
+  change_display_mode?: string | null
+  change_display_hint?: string | null
 }
 
 export interface AddFavoriteReq {
@@ -26,6 +31,10 @@ export interface AddFavoriteReq {
   notes?: string
   alert_price_high?: number | null
   alert_price_low?: number | null
+}
+
+export interface RemoveFavoriteOptions {
+  cleanup_related?: boolean
 }
 
 export const favoritesApi = {
@@ -52,7 +61,23 @@ export const favoritesApi = {
    * 删除收藏
    * @param symbol 股票代码（6位）
    */
-  remove: (symbol: string) => ApiClient.delete<{ message: string; symbol?: string; stock_code?: string }>(`/api/favorites/${symbol}`),
+  remove: (symbol: string, options?: RemoveFavoriteOptions) =>
+    ApiClient.delete<{
+      message: string
+      symbol?: string
+      stock_code?: string
+      cleanup_related?: boolean
+      cleanup?: {
+        success: boolean
+        history_deleted_count?: number
+        data_deleted_count?: number
+        error?: string
+      } | null
+    }>(`/api/favorites/${symbol}`, {
+      params: {
+        cleanup_related: options?.cleanup_related ?? false
+      }
+    }),
 
   /**
    * 检查是否已收藏
@@ -69,14 +94,18 @@ export const favoritesApi = {
    * 同步自选股实时行情
    * @param data_source 数据源（tushare/akshare）
    */
-  syncRealtime: (data_source: string = 'tushare') =>
+  syncRealtime: (data_source: string = 'akshare') =>
     ApiClient.post<{
       total: number
       success_count: number
       failed_count: number
       symbols: string[]
       data_source: string
+      details?: Record<string, {
+        total: number
+        success_count: number
+        failed_count: number
+      }>
       message: string
     }>('/api/favorites/sync-realtime', { data_source })
 }
-
