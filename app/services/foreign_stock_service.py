@@ -185,6 +185,7 @@ class ForeignStockService:
             # 数据源名称映射（数据库名称 → 处理函数）
             # 🔥 只有这些是有效的数据源名称
             source_handlers = {
+                'yfinance': ('yfinance', self._get_hk_quote_from_yfinance),
                 'yahoo_finance': ('yfinance', self._get_hk_quote_from_yfinance),
                 'akshare': ('akshare', self._get_hk_quote_from_akshare),
             }
@@ -864,6 +865,14 @@ class ForeignStockService:
     
     def _format_hk_quote(self, data: Dict, code: str, source: str) -> Dict:
         """格式化港股行情数据"""
+        change_percent = data.get('change_percent')
+        if isinstance(change_percent, str):
+            change_percent = change_percent.strip().rstrip('%')
+        try:
+            change_percent = float(change_percent) if change_percent not in (None, "") else None
+        except Exception:
+            change_percent = None
+
         return {
             'code': code,
             'name': data.get('name', f'港股{code}'),
@@ -873,9 +882,11 @@ class ForeignStockService:
             'high': data.get('high'),
             'low': data.get('low'),
             'volume': data.get('volume'),
+            'change_percent': change_percent,
+            'pct_chg': change_percent,
             'currency': data.get('currency', 'HKD'),
             'source': source,
-            'trade_date': data.get('timestamp', datetime.now().strftime('%Y-%m-%d')),
+            'trade_date': data.get('trade_date') or data.get('timestamp', datetime.now().strftime('%Y-%m-%d')),
             'updated_at': datetime.now().isoformat()
         }
 
@@ -1834,4 +1845,3 @@ class ForeignStockService:
         except Exception as e:
             logger.warning(f"⚠️ AKShare获取港股新闻失败: {e}")
             raise
-

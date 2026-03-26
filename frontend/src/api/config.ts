@@ -80,6 +80,13 @@ export interface DataSourceConfig {
   market_categories?: string[]  // 所属市场分类列表
   display_name?: string         // 显示名称
   provider?: string            // 数据提供商
+  extra_config?: {
+    has_api_key?: boolean
+    has_api_secret?: boolean
+    source?: 'environment' | 'database'
+    secret_source?: 'database'
+    [key: string]: any
+  }
   created_at?: string
   updated_at?: string
 }
@@ -429,10 +436,26 @@ export const configApi = {
 
   // 获取默认模型配置
   getDefaultModels(): Promise<{ quick_analysis_model: string; deep_analysis_model: string }> {
-    return ApiClient.get('/api/config/settings').then(settings => ({
-      quick_analysis_model: settings.quick_analysis_model || 'qwen-turbo',
-      deep_analysis_model: settings.deep_analysis_model || 'qwen-max'
-    }))
+    return ApiClient.get('/api/config/settings').then(settings => {
+      const defaultModel =
+        settings.quick_analysis_model ||
+        settings.quick_think_llm ||
+        settings.default_model ||
+        settings.deep_analysis_model ||
+        settings.deep_think_llm ||
+        ''
+
+      return {
+        quick_analysis_model:
+          settings.quick_analysis_model ||
+          settings.quick_think_llm ||
+          defaultModel,
+        deep_analysis_model:
+          settings.deep_analysis_model ||
+          settings.deep_think_llm ||
+          defaultModel
+      }
+    })
   },
 
   // 更新系统设置

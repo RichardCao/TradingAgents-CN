@@ -40,6 +40,13 @@
               >
                 {{ item.enabled ? '启用' : '禁用' }}
               </el-tag>
+              <el-tag
+                v-if="item.extra_config?.has_api_key"
+                :type="item.extra_config?.source === 'environment' ? 'warning' : 'success'"
+                size="small"
+              >
+                {{ item.extra_config?.source === 'environment' ? 'ENV' : 'DB' }}
+              </el-tag>
               <el-tag type="info" size="small">
                 优先级: {{ item.priority }}
               </el-tag>

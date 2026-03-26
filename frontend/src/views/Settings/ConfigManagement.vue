@@ -421,6 +421,13 @@
                       <el-tag :type="dataSource.enabled ? 'success' : 'danger'" size="small">
                         {{ dataSource.enabled ? '启用' : '禁用' }}
                       </el-tag>
+                      <el-tag
+                        v-if="dataSource.extra_config?.has_api_key"
+                        :type="dataSource.extra_config?.source === 'environment' ? 'warning' : 'success'"
+                        size="small"
+                      >
+                        {{ dataSource.extra_config?.source === 'environment' ? 'ENV' : 'DB' }}
+                      </el-tag>
                       <span class="item-type">{{ dataSource.type }}</span>
                     </div>
                     <div class="item-actions">
@@ -849,6 +856,62 @@
 
             <el-divider />
 
+            <el-row :gutter="24" style="margin-bottom: 16px;">
+              <el-col :span="12">
+                <h4>🗂️ 数据源密钥状态</h4>
+                <div
+                  v-for="dataSource in dataSourceConfigs"
+                  :key="dataSource.name"
+                  class="api-key-item"
+                >
+                  <el-icon><DataBoard /></el-icon>
+                  <span class="key-name">{{ dataSource.display_name || dataSource.name }}</span>
+                  <el-tag :type="getDataSourceKeyStatusType(dataSource)" size="small">
+                    {{ getDataSourceKeyStatusText(dataSource) }}
+                  </el-tag>
+                  <el-button
+                    v-if="needsDataSourceKeyConfig(dataSource)"
+                    size="small"
+                    type="primary"
+                    link
+                    @click="editDataSourceConfig(dataSource)"
+                  >
+                    配置
+                  </el-button>
+                </div>
+
+                <div v-if="dataSourceConfigs.length === 0" class="empty-state">
+                  <el-empty description="暂无数据源配置">
+                    <el-button type="primary" @click="activeTab = 'datasource'">
+                      添加数据源
+                    </el-button>
+                  </el-empty>
+                </div>
+              </el-col>
+
+              <el-col :span="12">
+                <h4>📈 数据源统计</h4>
+                <div class="stats-grid">
+                  <div class="stat-item">
+                    <div class="stat-number">{{ dataSourceConfigs.length }}</div>
+                    <div class="stat-label">总数据源数</div>
+                  </div>
+                  <div class="stat-item">
+                    <div class="stat-number">{{ configuredDataSourcesCount }}</div>
+                    <div class="stat-label">已配置密钥</div>
+                  </div>
+                  <div class="stat-item">
+                    <div class="stat-number">{{ enabledDataSourcesCount }}</div>
+                    <div class="stat-label">启用数据源</div>
+                  </div>
+                  <div class="stat-item">
+                    <div class="stat-number">{{ defaultDataSource || '-' }}</div>
+                    <div class="stat-label">默认数据源</div>
+                  </div>
+                </div>
+              </el-col>
+            </el-row>
+
             <div class="api-key-help">
               <h4>💡 配置说明</h4>
               <el-row :gutter="16">
@@ -881,7 +944,7 @@
                   <el-alert
                     title="🔒 安全提示"
                     type="warning"
-                    description="敏感密钥通过环境变量/运维配置注入，后端响应已统一脱敏；请勿在界面或导出文件中保存真实密钥。"
+                    description="页面不会回显真实密钥；保存后仅展示脱敏状态。数据库配置优先于环境变量，请勿导出真实密钥。"
                     show-icon
                     :closable="false"
                   />
@@ -1206,6 +1269,7 @@ const loadTabData = async (tab: string) => {
     case 'api-keys':
       await loadProviders()
       await loadLLMConfigs()
+      await loadDataSourceConfigs()
       break
   }
 }
@@ -1434,8 +1498,8 @@ const loadSystemSettings = async () => {
     ])
     // 确保有默认值
     systemSettings.value = {
-      quick_analysis_model: 'qwen-turbo',
-      deep_analysis_model: 'qwen-max',
+      quick_analysis_model: '',
+      deep_analysis_model: '',
       default_analysis_timeout: 300,
       enable_cache: true,
       cache_ttl: 3600,
@@ -1705,6 +1769,14 @@ const activeProvidersCount = computed(() => {
   return providers.value.filter(p => p.is_active).length
 })
 
+const configuredDataSourcesCount = computed(() => {
+  return dataSourceConfigs.value.filter(ds => ds.extra_config?.has_api_key === true).length
+})
+
+const enabledDataSourcesCount = computed(() => {
+  return dataSourceConfigs.value.filter(ds => ds.enabled).length
+})
+
 // 获取密钥状态类型
 const getKeyStatusType = (provider: LLMProvider) => {
   if (!provider.extra_config?.has_api_key) {
@@ -1727,6 +1799,27 @@ const getKeyStatusText = (provider: LLMProvider) => {
   }
 
   return '已配置'
+}
+
+const needsDataSourceKeyConfig = (dataSource: DataSourceConfig) => {
+  return dataSource.type !== 'akshare' && dataSource.type !== 'baostock' && dataSource.type !== 'local_file'
+}
+
+const getDataSourceKeyStatusType = (dataSource: DataSourceConfig) => {
+  if (dataSource.extra_config?.has_api_key) {
+    return dataSource.enabled ? 'success' : 'warning'
+  }
+  return needsDataSourceKeyConfig(dataSource) ? 'info' : undefined
+}
+
+const getDataSourceKeyStatusText = (dataSource: DataSourceConfig) => {
+  if (dataSource.extra_config?.has_api_key) {
+    if (!dataSource.enabled) {
+      return dataSource.extra_config?.source === 'environment' ? 'ENV(禁用)' : 'DB(禁用)'
+    }
+    return dataSource.extra_config?.source === 'environment' ? '已配置(环境变量)' : '已配置(数据库)'
+  }
+  return needsDataSourceKeyConfig(dataSource) ? '未配置' : '无需密钥'
 }
 
 // 从环境变量迁移
