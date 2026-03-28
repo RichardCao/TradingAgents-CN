@@ -93,3 +93,38 @@ def test_news_ok_with_announcements_and_source(client):
         assert data["source"] == "database"
         assert isinstance(data["items"], list) and len(data["items"]) == 2
         assert data["items"][0]["source"] == "tushare"
+
+
+def test_hk_news_uses_foreign_stock_service(client):
+    fake_result = {
+        "code": "09992",
+        "days": 3,
+        "limit": 2,
+        "source": "akshare",
+        "items": [
+            {
+                "title": "泡泡玛特港股新闻样例",
+                "publish_time": "2026-03-28 10:00:00",
+                "url": "https://example.com/hk-news",
+                "summary": "新闻摘要",
+                "source": "AKShare-东方财富",
+            }
+        ],
+    }
+
+    mock_service = AsyncMock()
+    mock_service.get_hk_news.return_value = fake_result
+
+    with patch("app.services.foreign_stock_service.ForeignStockService", return_value=mock_service):
+        resp = client.get("/api/stocks/09992/news", params={"days": 3, "limit": 2})
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body.get("success") is True
+    data = body.get("data")
+    assert data["code"] == "09992"
+    assert data["days"] == 3
+    assert data["limit"] == 2
+    assert data["source"] == "akshare"
+    assert len(data["items"]) == 1
+    assert data["items"][0]["title"] == "泡泡玛特港股新闻样例"
