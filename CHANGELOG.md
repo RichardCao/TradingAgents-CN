@@ -33,6 +33,8 @@
 ### 改进
 - `backfill`: 为港股 / 美股 `yfinance` 调用新增统一重试与指数退避 helper，并接入主要行情、基础信息与 K 线读取链路。
 - `backfill`: 统一补齐 `yfinance / yahoo_finance` 数据源别名映射，避免数据库配置为 `yfinance` 时被误过滤。
+- `backfill`: 为主分析链路补充统一股票身份结构，新增 `ticker_clean / ticker_qualified / display_symbol / exchange_code / board` 等字段，并优先接入图初始状态、报告落库与新闻查询入口。
+- `backfill`: 为长文本阶段新增 OpenAI Responses API 灰度接入层，当前仅对白名单阶段 `Research Manager` 且满足 OpenAI 路径条件时启用，失败自动回退到现有 LangChain 路径。
 - 优化单股同步数据源选择逻辑：
   - 仅同步实时行情时仅允许 `AKShare`
   - 不含实时行情时允许 `Tushare / AKShare`
@@ -78,6 +80,8 @@
   - 标签去重与标签改名传播
   - 港股实时行情格式化
   - `yfinance` transient error 重试与无效代码不重试
+  - `ticker_qualified` 标准化字段与图初始状态透传
+  - OpenAI Responses API 灰度适配与阶段白名单控制
   - 报告中文标题规范化
 - 默认后端标准套件已恢复为稳定可跑：
   - `471 passed, 2 skipped, 287 deselected`

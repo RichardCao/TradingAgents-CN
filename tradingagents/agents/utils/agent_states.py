@@ -54,6 +54,14 @@ class RiskDebateState(TypedDict):
 class AgentState(MessagesState):
     company_of_interest: Annotated[str, "Company that we are interested in trading"]
     trade_date: Annotated[str, "What date we are trading at"]
+    ticker_input: Annotated[Optional[str], "User input ticker symbol"]
+    ticker_clean: Annotated[Optional[str], "Ticker without exchange suffix"]
+    ticker_qualified: Annotated[Optional[str], "Exchange-qualified ticker symbol"]
+    display_symbol: Annotated[Optional[str], "Display-friendly symbol"]
+    market_name: Annotated[Optional[str], "Resolved market name"]
+    exchange: Annotated[Optional[str], "Resolved exchange name"]
+    exchange_code: Annotated[Optional[str], "Resolved exchange code"]
+    board: Annotated[Optional[str], "Resolved board name"]
 
     sender: Annotated[str, "Agent that sent this message"]
 

@@ -3,6 +3,10 @@ from typing import Any, Iterable
 
 from langchain_core.messages import AIMessage
 
+from tradingagents.llm_adapters.openai_responses_adapter import (
+    invoke_responses_text,
+    supports_openai_responses,
+)
 from tradingagents.utils.logging_init import get_logger
 
 logger = get_logger("default")
@@ -37,6 +41,13 @@ def stream_text_response(llm: Any, prompt: Any, stage_name: str) -> AIMessage:
     start_time = time()
     chunk_count = 0
     collected_parts = []
+
+    if supports_openai_responses(llm, stage_name, prompt):
+        try:
+            return invoke_responses_text(llm, prompt, stage_name)
+        except Exception:
+            # Responses API 仅作为灰度路径；失败后继续走现有 LangChain 路径。
+            pass
 
     try:
         for chunk in llm.stream(prompt):

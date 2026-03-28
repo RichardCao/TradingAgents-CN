@@ -7,7 +7,8 @@
 
 import logging
 from datetime import datetime
-import re
+
+from tradingagents.utils.stock_utils import StockUtils
 
 logger = logging.getLogger(__name__)
 
@@ -66,29 +67,14 @@ class UnifiedNewsAnalyzer:
     
     def _identify_stock_type(self, stock_code: str) -> str:
         """识别股票类型"""
-        stock_code = stock_code.upper().strip()
-        
-        # A股判断
-        if re.match(r'^(00|30|60|68)\d{4}$', stock_code):
+        market_info = StockUtils.get_market_info(stock_code)
+        if market_info["is_china"]:
             return "A股"
-        elif re.match(r'^(SZ|SH)\d{6}$', stock_code):
-            return "A股"
-        
-        # 港股判断
-        elif re.match(r'^\d{4,5}\.HK$', stock_code):
+        if market_info["is_hk"]:
             return "港股"
-        elif re.match(r'^\d{4,5}$', stock_code) and len(stock_code) <= 5:
-            return "港股"
-        
-        # 美股判断
-        elif re.match(r'^[A-Z]{1,5}$', stock_code):
+        if market_info["is_us"]:
             return "美股"
-        elif '.' in stock_code and not stock_code.endswith('.HK'):
-            return "美股"
-        
-        # 默认按A股处理
-        else:
-            return "A股"
+        return "A股"
 
     def _get_news_from_database(self, stock_code: str, max_news: int = 10) -> str:
         """
@@ -116,9 +102,9 @@ class UnifiedNewsAnalyzer:
             db = client.get_database('tradingagents')
             collection = db.stock_news
 
-            # 标准化股票代码（去除后缀）
-            clean_code = stock_code.replace('.SH', '').replace('.SZ', '').replace('.SS', '')\
-                                   .replace('.XSHE', '').replace('.XSHG', '').replace('.HK', '')
+            market_info = StockUtils.get_market_info(stock_code)
+            clean_code = market_info.get("ticker_clean") or stock_code
+            qualified_code = market_info.get("ticker_qualified") or stock_code
 
             # 查询最近30天的新闻（扩大时间范围）
             thirty_days_ago = datetime.now() - timedelta(days=30)
@@ -126,11 +112,15 @@ class UnifiedNewsAnalyzer:
             # 尝试多种查询方式（使用 symbol 字段）
             query_list = [
                 {'symbol': clean_code, 'publish_time': {'$gte': thirty_days_ago}},
+                {'symbol': qualified_code, 'publish_time': {'$gte': thirty_days_ago}},
                 {'symbol': stock_code, 'publish_time': {'$gte': thirty_days_ago}},
                 {'symbols': clean_code, 'publish_time': {'$gte': thirty_days_ago}},
+                {'symbols': qualified_code, 'publish_time': {'$gte': thirty_days_ago}},
                 # 如果最近30天没有新闻，则查询所有新闻（不限时间）
                 {'symbol': clean_code},
+                {'symbol': qualified_code},
                 {'symbols': clean_code},
+                {'symbols': qualified_code},
             ]
 
             news_items = []
@@ -200,9 +190,7 @@ class UnifiedNewsAnalyzer:
             import asyncio
             import concurrent.futures
 
-            # 标准化股票代码（去除后缀）
-            clean_code = stock_code.replace('.SH', '').replace('.SZ', '').replace('.SS', '')\
-                                   .replace('.XSHE', '').replace('.XSHG', '').replace('.HK', '')
+            clean_code = StockUtils.get_market_info(stock_code).get("ticker_clean") or stock_code
 
             logger.info(f"[统一新闻工具] 🔄 开始同步 {clean_code} 的新闻...")
 

@@ -16,6 +16,7 @@ from dataclasses import dataclass
 
 # 导入日志模块
 from tradingagents.config.runtime_settings import get_timezone_name
+from tradingagents.utils.stock_utils import StockUtils
 
 from tradingagents.utils.logging_manager import get_logger
 logger = get_logger('agents')
@@ -46,6 +47,21 @@ class RealtimeNewsAggregator:
         self.finnhub_key = os.getenv('FINNHUB_API_KEY')
         self.alpha_vantage_key = os.getenv('ALPHA_VANTAGE_API_KEY')
         self.newsapi_key = os.getenv('NEWSAPI_KEY')
+
+    @staticmethod
+    def _get_ticker_identity(ticker: str) -> Dict[str, Optional[str]]:
+        market_info = StockUtils.get_market_info(ticker)
+        return {
+            "stock_type": (
+                "A股" if market_info["is_china"]
+                else "港股" if market_info["is_hk"]
+                else "美股" if market_info["is_us"]
+                else "未知"
+            ),
+            "clean_ticker": market_info.get("ticker_clean") or ticker,
+            "qualified_ticker": market_info.get("ticker_qualified") or ticker,
+            "market_info": market_info,
+        }
 
     def get_realtime_stock_news(self, ticker: str, hours_back: int = 6, max_news: int = 10) -> List[NewsItem]:
         """
@@ -322,8 +338,7 @@ class RealtimeNewsAggregator:
                     logger.info(f"[中文财经新闻] 检测到美股代码 {ticker}，跳过东方财富新闻获取")
                 else:
                     # 处理A股和港股代码
-                    clean_ticker = ticker.replace('.SH', '').replace('.SZ', '').replace('.SS', '')\
-                                    .replace('.HK', '').replace('.XSHE', '').replace('.XSHG', '')
+                    clean_ticker = self._get_ticker_identity(ticker)["clean_ticker"] or ticker
 
                     # 获取东方财富新闻
                     logger.info(f"[中文财经新闻] 开始获取 {clean_ticker} 的东方财富新闻")
@@ -693,11 +708,15 @@ def get_realtime_stock_news(ticker: str, curr_date: str, hours_back: int = 6) ->
 
     # 判断股票类型
     logger.info(f"[新闻分析] ========== 步骤1: 股票类型判断 ==========")
-    stock_type = "未知"
+    identity = RealtimeNewsAggregator._get_ticker_identity(ticker)
+    stock_type = identity["stock_type"]
     is_china_stock = False
     logger.info(f"[新闻分析] 原始ticker: {ticker}")
 
-    if '.' in ticker:
+    if stock_type != "未知":
+        is_china_stock = stock_type == "A股"
+        logger.info(f"[新闻分析] 统一标准化判断结果: {ticker} -> {stock_type}, identity={identity}")
+    elif '.' in ticker:
         logger.info(f"[新闻分析] 检测到ticker包含点号，进行后缀匹配")
         if any(suffix in ticker for suffix in ['.SH', '.SZ', '.SS', '.XSHE', '.XSHG']):
             stock_type = "A股"
@@ -746,8 +765,7 @@ def get_realtime_stock_news(ticker: str, curr_date: str, hours_back: int = 6) ->
             logger.info(f"[新闻分析] 成功创建 AKShare Provider 实例")
 
             # 处理A股代码
-            clean_ticker = ticker.replace('.SH', '').replace('.SZ', '').replace('.SS', '')\
-                            .replace('.XSHE', '').replace('.XSHG', '')
+            clean_ticker = identity["clean_ticker"] or ticker
             logger.info(f"[新闻分析] 原始ticker: {ticker} -> 清理后ticker: {clean_ticker}")
 
             logger.info(f"[新闻分析] 准备调用 provider.get_stock_news_sync({clean_ticker})")
@@ -866,7 +884,7 @@ def get_realtime_stock_news(ticker: str, curr_date: str, hours_back: int = 6) ->
             provider = AKShareProvider()
 
             # 处理港股代码
-            clean_ticker = ticker.replace('.HK', '')
+            clean_ticker = identity["clean_ticker"] or ticker
 
             logger.info(f"[新闻分析] 开始从东方财富获取港股 {clean_ticker} 的新闻数据")
             start_time = datetime.now(ZoneInfo(get_timezone_name()))
@@ -908,13 +926,12 @@ def get_realtime_stock_news(ticker: str, curr_date: str, hours_back: int = 6) ->
         # 根据股票类型构建搜索查询
         if stock_type == "A股":
             # A股使用中文关键词
-            clean_ticker = ticker.replace('.SH', '').replace('.SZ', '').replace('.SS', '')\
-                           .replace('.XSHE', '').replace('.XSHG', '')
+            clean_ticker = identity["clean_ticker"] or ticker
             search_query = f"{clean_ticker} 股票 公司 财报 新闻"
             logger.info(f"[新闻分析] 开始从Google获取A股 {clean_ticker} 的中文新闻数据，查询: {search_query}")
         elif stock_type == "港股":
             # 港股使用中文关键词
-            clean_ticker = ticker.replace('.HK', '')
+            clean_ticker = identity["clean_ticker"] or ticker
             search_query = f"{clean_ticker} 港股 公司"
             logger.info(f"[新闻分析] 开始从Google获取港股 {clean_ticker} 的新闻数据，查询: {search_query}")
         else:

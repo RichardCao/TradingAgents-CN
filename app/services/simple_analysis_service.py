@@ -2714,28 +2714,30 @@ class SimpleAnalysisService:
             }
             market_type = market_type_map.get(market_info.get("market", "unknown"), "A股")
             logger.info(f"📊 推断市场类型: {stock_symbol} -> {market_type}")
+            display_symbol = market_info.get("display_symbol") or stock_symbol
+            ticker_qualified = market_info.get("ticker_qualified") or stock_symbol
 
             # 🔥 获取股票名称
-            stock_name = stock_symbol  # 默认使用股票代码
+            stock_name = display_symbol  # 默认使用规范化后的展示代码
             try:
                 if market_info.get("market") == "china_a":
                     # A股：使用统一接口获取股票信息
                     from tradingagents.dataflows.interface import get_china_stock_info_unified
-                    stock_info = get_china_stock_info_unified(stock_symbol)
+                    stock_info = get_china_stock_info_unified(display_symbol)
                     logger.debug(f"📊 获取股票信息返回: {stock_info[:200] if stock_info else 'None'}...")
 
                     if stock_info and "股票名称:" in stock_info:
                         stock_name = stock_info.split("股票名称:")[1].split("\n")[0].strip()
-                        logger.info(f"✅ 获取A股名称: {stock_symbol} -> {stock_name}")
+                        logger.info(f"✅ 获取A股名称: {display_symbol} -> {stock_name}")
                     else:
                         # 降级方案：尝试直接从数据源管理器获取
-                        logger.warning(f"⚠️ 无法从统一接口解析股票名称: {stock_symbol}，尝试降级方案")
+                        logger.warning(f"⚠️ 无法从统一接口解析股票名称: {display_symbol}，尝试降级方案")
                         try:
                             from tradingagents.dataflows.data_source_manager import get_china_stock_info_unified as get_info_dict
-                            info_dict = get_info_dict(stock_symbol)
+                            info_dict = get_info_dict(display_symbol)
                             if info_dict and info_dict.get('name'):
                                 stock_name = info_dict['name']
-                                logger.info(f"✅ 降级方案成功获取股票名称: {stock_symbol} -> {stock_name}")
+                                logger.info(f"✅ 降级方案成功获取股票名称: {display_symbol} -> {stock_name}")
                         except Exception as fallback_e:
                             logger.error(f"❌ 降级方案也失败: {fallback_e}")
 
@@ -2743,11 +2745,10 @@ class SimpleAnalysisService:
                     # 港股：使用改进的港股工具
                     try:
                         from tradingagents.dataflows.providers.hk.improved_hk import get_hk_company_name_improved
-                        stock_name = get_hk_company_name_improved(stock_symbol)
-                        logger.info(f"📊 获取港股名称: {stock_symbol} -> {stock_name}")
+                        stock_name = get_hk_company_name_improved(display_symbol)
+                        logger.info(f"📊 获取港股名称: {display_symbol} -> {stock_name}")
                     except Exception:
-                        clean_ticker = stock_symbol.replace('.HK', '').replace('.hk', '')
-                        stock_name = f"港股{clean_ticker}"
+                        stock_name = f"港股{display_symbol}"
                 elif market_info.get("market") == "us":
                     # 美股：使用简单映射
                     us_stock_names = {
@@ -2755,18 +2756,23 @@ class SimpleAnalysisService:
                         'MSFT': '微软', 'GOOGL': '谷歌', 'AMZN': '亚马逊',
                         'META': 'Meta', 'NFLX': '奈飞'
                     }
-                    stock_name = us_stock_names.get(stock_symbol.upper(), f"美股{stock_symbol}")
-                    logger.info(f"📊 获取美股名称: {stock_symbol} -> {stock_name}")
+                    stock_name = us_stock_names.get(display_symbol.upper(), f"美股{display_symbol}")
+                    logger.info(f"📊 获取美股名称: {display_symbol} -> {stock_name}")
             except Exception as e:
-                logger.warning(f"⚠️ 获取股票名称失败: {stock_symbol} - {e}")
-                stock_name = stock_symbol
+                logger.warning(f"⚠️ 获取股票名称失败: {display_symbol} - {e}")
+                stock_name = display_symbol
 
             # 构建文档（与web目录的MongoDBReportManager保持一致）
             document = {
                 "analysis_id": analysis_id,
                 "stock_symbol": stock_symbol,
+                "display_symbol": display_symbol,
+                "ticker_qualified": ticker_qualified,
                 "stock_name": stock_name,  # 🔥 添加股票名称字段
                 "market_type": market_type,  # 🔥 添加市场类型字段
+                "exchange": market_info.get("exchange"),
+                "exchange_code": market_info.get("exchange_code"),
+                "board": market_info.get("board"),
                 "model_info": result.get("model_info", "Unknown"),  # 🔥 添加模型信息字段
                 "analysis_date": timestamp.strftime('%Y-%m-%d'),
                 "language": report_language,

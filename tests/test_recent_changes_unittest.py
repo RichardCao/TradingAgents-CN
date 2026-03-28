@@ -42,6 +42,12 @@ from tradingagents.dataflows.providers.common.yfinance_client import (
     get_ticker_history,
     get_ticker_info,
 )
+from tradingagents.graph.propagation import Propagator
+from tradingagents.llm_adapters.openai_responses_adapter import (
+    invoke_responses_text,
+    supports_openai_responses,
+)
+from tradingagents.utils.stock_utils import StockUtils
 
 
 class TestRecentChanges(unittest.TestCase):
@@ -157,6 +163,106 @@ class TestRecentChanges(unittest.TestCase):
         self.assertIn("09992", keys)
         self.assertIn("9992", keys)
         self.assertIn("300750", keys)
+
+    def test_stock_utils_returns_qualified_ticker_metadata(self):
+        a_share = StockUtils.get_market_info("300750")
+        hk_share = StockUtils.get_market_info("9992")
+        us_stock = StockUtils.get_market_info("TSLA")
+
+        self.assertEqual(a_share["ticker_clean"], "300750")
+        self.assertEqual(a_share["ticker_qualified"], "300750.SZ")
+        self.assertEqual(a_share["exchange_code"], "SZSE")
+        self.assertEqual(a_share["board"], "创业板")
+
+        self.assertEqual(hk_share["display_symbol"], "09992")
+        self.assertEqual(hk_share["ticker_qualified"], "09992.HK")
+        self.assertEqual(hk_share["exchange_code"], "SEHK")
+
+        self.assertEqual(us_stock["ticker_clean"], "TSLA")
+        self.assertEqual(us_stock["ticker_qualified"], "TSLA")
+        self.assertTrue(us_stock["is_us"])
+
+    def test_stock_utils_recognizes_a_share_with_suffix(self):
+        market_info = StockUtils.get_market_info("600519.SH")
+
+        self.assertEqual(market_info["market"], "china_a")
+        self.assertTrue(market_info["is_china"])
+        self.assertEqual(market_info["ticker_clean"], "600519")
+        self.assertEqual(market_info["ticker_qualified"], "600519.SH")
+
+    def test_propagator_initial_state_includes_ticker_identity(self):
+        state = Propagator().create_initial_state("09992", "2026-03-28")
+
+        self.assertEqual(state["ticker_input"], "09992")
+        self.assertEqual(state["ticker_clean"], "09992")
+        self.assertEqual(state["ticker_qualified"], "09992.HK")
+        self.assertEqual(state["display_symbol"], "09992")
+        self.assertEqual(state["market_name"], "港股")
+        self.assertIn("标准代码为 09992.HK", state["messages"][0].content)
+
+    def test_openai_responses_gray_path_only_targets_whitelisted_stage(self):
+        class FakeOfficialChatOpenAI:
+            __module__ = "langchain_openai.chat_models.base"
+
+            def __init__(self):
+                self.model_name = "gpt-5.4"
+                self.openai_api_base = "https://api.openai.com/v1"
+                self.openai_api_key = "sk-test-placeholder-001"
+                self.temperature = 0.2
+                self.max_tokens = 2048
+                self.timeout = 120
+
+        llm = FakeOfficialChatOpenAI()
+
+        with patch.dict(
+            "os.environ",
+            {"TA_OPENAI_RESPONSES_ENABLED": "1"},
+            clear=False,
+        ):
+            self.assertTrue(supports_openai_responses(llm, "Research Manager", "分析这段文本"))
+            self.assertFalse(supports_openai_responses(llm, "Neutral Analyst", "分析这段文本"))
+
+    def test_openai_responses_adapter_collects_stream_text(self):
+        class FakeOfficialChatOpenAI:
+            __module__ = "langchain_openai.chat_models.base"
+
+            def __init__(self):
+                self.model_name = "gpt-5.4"
+                self.openai_api_base = "https://api.openai.com/v1"
+                self.openai_api_key = "sk-test-placeholder-001"
+                self.temperature = 0.2
+                self.max_tokens = 2048
+                self.timeout = 120
+
+        class FakeStream:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            def __iter__(self):
+                yield SimpleNamespace(type="response.output_text.delta", delta="第一段")
+                yield SimpleNamespace(type="response.output_text.delta", delta="第二段")
+
+            def get_final_response(self):
+                return SimpleNamespace(output_text="第一段第二段")
+
+        fake_client = SimpleNamespace(
+            responses=SimpleNamespace(stream=MagicMock(return_value=FakeStream()))
+        )
+
+        with patch(
+            "tradingagents.llm_adapters.openai_responses_adapter.OpenAI",
+            return_value=fake_client,
+        ):
+            message = invoke_responses_text(
+                FakeOfficialChatOpenAI(),
+                "请总结这段长文本",
+                "Research Manager",
+            )
+
+        self.assertEqual(message.content, "第一段第二段")
 
     def test_report_language_utils_translate_english_headings_to_chinese(self):
         content = "## market_report\n\n### Neutral Analyst\n\n分析内容"
