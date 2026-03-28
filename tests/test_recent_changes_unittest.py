@@ -21,6 +21,7 @@ from app.services.stock_data_service import StockDataService
 from app.services.tags_service import TagsService
 from app.services import simple_analysis_service
 from app.routers import analysis as analysis_router
+from app.routers import reports as reports_router
 from tradingagents.dataflows.providers.sina_finance import (
     SinaFinancePageClient,
     infer_sina_page_url,
@@ -739,6 +740,22 @@ class TestRecentChanges(unittest.TestCase):
         self.assertIn("第三段", as_list)
         self.assertIn('"title": "报告"', as_dict)
         self.assertIn('"score": 0.82', as_dict)
+
+    def test_reports_router_normalizes_reports_map_for_list_and_dict(self):
+        normalized = reports_router._normalize_reports_map(
+            {
+                "market_report": ["第一段", {"summary": "第二段"}],
+                "fundamentals_report": {"title": "报告", "score": 0.82},
+                "empty_report": None,
+            }
+        )
+
+        self.assertIn("market_report", normalized)
+        self.assertIn("fundamentals_report", normalized)
+        self.assertNotIn("empty_report", normalized)
+        self.assertIn("第一段", normalized["market_report"])
+        self.assertIn('"summary": "第二段"', normalized["market_report"])
+        self.assertIn('"title": "报告"', normalized["fundamentals_report"])
 
     def test_hk_unified_news_tool_falls_back_to_sync_provider_inside_running_loop(self):
         toolkit = Toolkit(config={})

@@ -21,6 +21,43 @@ logger = logging.getLogger("webapi")
 # 股票名称缓存
 _stock_name_cache = {}
 
+
+def _stringify_report_value(value: Any) -> str:
+    """Normalize report payload values into stable text for API/detail/download responses."""
+    if value is None:
+        return ""
+
+    if isinstance(value, str):
+        return value.strip()
+
+    if isinstance(value, list):
+        parts = []
+        for item in value:
+            item_text = _stringify_report_value(item)
+            if item_text:
+                parts.append(item_text)
+        return "\n\n".join(parts).strip()
+
+    if isinstance(value, dict):
+        try:
+            return json.dumps(value, ensure_ascii=False, indent=2).strip()
+        except Exception:
+            return str(value).strip()
+
+    return str(value).strip()
+
+
+def _normalize_reports_map(reports: Any) -> Dict[str, str]:
+    if not isinstance(reports, dict):
+        return {}
+
+    normalized: Dict[str, str] = {}
+    for key, value in reports.items():
+        text = _stringify_report_value(value)
+        if text:
+            normalized[str(key)] = text
+    return normalized
+
 def get_stock_name(stock_code: str) -> str:
     """
     获取股票名称
@@ -291,7 +328,7 @@ async def get_report_detail(
                 "analysts": r.get("analysts", []),
                 "research_depth": r.get("research_depth", 1),
                 "summary": r.get("summary", ""),
-                "reports": r.get("reports", {}),
+                "reports": _normalize_reports_map(r.get("reports", {})),
                 "source": "analysis_tasks",
                 "task_id": tasks_doc.get("task_id", report_id),
                 "recommendation": r.get("recommendation", ""),
@@ -329,7 +366,7 @@ async def get_report_detail(
                 "analysts": doc.get("analysts", []),
                 "research_depth": doc.get("research_depth", 1),
                 "summary": doc.get("summary", ""),
-                "reports": doc.get("reports", {}),
+                "reports": _normalize_reports_map(doc.get("reports", {})),
                 "source": doc.get("source", "unknown"),
                 "task_id": doc.get("task_id", ""),
                 "recommendation": doc.get("recommendation", ""),
@@ -371,7 +408,7 @@ async def get_report_module_content(
         if not doc:
             raise HTTPException(status_code=404, detail="报告不存在")
 
-        reports = doc.get("reports", {})
+        reports = _normalize_reports_map(doc.get("reports", {}))
 
         if module not in reports:
             raise HTTPException(status_code=404, detail=f"模块 {module} 不存在")
@@ -383,7 +420,7 @@ async def get_report_module_content(
             "data": {
                 "module": module,
                 "content": content,
-                "content_type": "markdown" if isinstance(content, str) else "json"
+                "content_type": "markdown"
             },
             "message": "模块内容获取成功"
         }
@@ -472,7 +509,7 @@ async def download_report(
 
         elif format == "markdown":
             # Markdown格式下载
-            reports = doc.get("reports", {})
+            reports = _normalize_reports_map(doc.get("reports", {}))
             content_parts = []
 
             # 添加标题
