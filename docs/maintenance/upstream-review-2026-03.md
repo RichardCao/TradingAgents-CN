@@ -2,6 +2,12 @@
 
 本文档用于记录 `TauricResearch/TradingAgents` 在中文仓库分叉后、尤其是 2026 年初以来的重要公开更新，并评估哪些值得在 `TradingAgents-CN` 中回补。
 
+补充说明：
+
+- 本文档最初用于“上游能力调研”
+- 其中部分高价值能力已经在当前仓库中做了局部回补
+- 因此本文档同时标记“已回补 / 仍候选 / 暂不建议回补”
+
 ## 1. 调研范围
 
 - 调研时间：2026-03-28
@@ -123,6 +129,11 @@
 - 如果上游把“原生模型 -> Responses API”这条链路处理得更稳，这对长报告稳定性有直接价值
 - 这不是 UI 功能，而是核心调用链能力
 
+当前状态：
+
+- **已做局部回补**
+- 当前仓库已经新增灰度 `Responses API` 适配层，并仅对受控阶段启用
+
 2. `yfinance rate limit exponential backoff`
 
 原因：
@@ -131,6 +142,11 @@
 - 我们自己近期也遇到过港股实时行情部分成功、刷新不一致、数据兜底口径等问题
 - 上游这条修复与中文仓库现状高度相关
 
+当前状态：
+
+- **已做局部回补**
+- 当前仓库已经抽出统一 `yfinance` retry/backoff helper，并接入主要港股 / 美股链路
+
 3. `exchange-qualified tickers`
 
 原因：
@@ -138,6 +154,11 @@
 - 中文仓库已经有多市场、多交易所、多代码格式问题
 - 上游专门修这个，说明他们在 agent prompt 透传 ticker 身份时踩过坑
 - 这类问题在港股 / 美股 / 多地上市股票上尤其重要
+
+当前状态：
+
+- **已做主链路回补**
+- 当前仓库已补齐 `ticker_qualified / display_symbol / exchange_code / board` 等标准身份字段
 
 #### 第二优先级：值得择机吸收
 
@@ -149,6 +170,11 @@
 - 如果后续继续支持 Claude 系列，这条能力有配置价值
 - 但当前你主要用 GPT 路线，这不是最急迫项
 
+当前状态：
+
+- **已回补**
+- 后端配置和模型创建链路已支持 `effort / thinking_budget_tokens / thinking_type`
+
 5. `malformed CSV / NaN parsing hardening`
 
 原因：
@@ -157,12 +183,26 @@
 - 数据脏值、空值、异常格式很常见
 - 这类修复通常收益稳定、冲突较小
 
+当前状态：
+
+- **仍值得继续评估**
+- 这部分当前仓库没有明确做过等价回补
+
 6. `comma-separated indicators` / `debate round config` / `initialize all debate state fields`
 
 原因：
 
 - 都属于图执行、工具参数与 debate 状态稳定性修复
 - 对分析流程的边缘稳定性有帮助
+
+当前状态：
+
+- `initialize all debate state fields`
+  - **已回补**
+- `comma-separated indicators`
+  - **仍是候选**
+- `debate round config`
+  - **仍是候选**
 
 #### 第三优先级：需要谨慎，不建议直接照搬
 
@@ -174,6 +214,11 @@
 - 中文仓库当前有自己的分析页面、报告展示、任务进度和中文输出规范
 - 直接照搬很容易引入兼容性回归
 
+当前状态：
+
+- **暂不建议回补**
+- 这会直接影响提示词、输出结构和前端展示语义
+
 8. `install consolidation / CLI portability / pyproject-only packaging`
 
 原因：
@@ -182,39 +227,58 @@
 - 上游 CLI 项目的安装方式不能直接套进中文仓库
 - 这类更新只适合局部借鉴，不适合整体迁移
 
+当前状态：
+
+- **暂不建议整体迁移**
+- 可零散吸收，但不应改写当前 Web + API + Mongo/Redis 路径
+
 ## 5. 中文仓库当前明显未对齐的上游点
 
-结合仓库内搜索结果，当前中文仓库中**没有明显看到**以下上游新能力已经被系统性吸收：
+结合当前仓库现状，以下项目已经完成或基本完成回补：
 
-- 原生 OpenAI 模型统一切到 Responses API
-- Claude effort level / thinking effort 之类的正式支持
-- `exchange-qualified tickers` 的完整贯穿
-- `yfinance` 的统一指数退避限流重试实现
-- 上游新的五档评级口径
+- 原生 OpenAI 模型的 Responses API 灰度接入
+- Claude effort / thinking 相关后端支持
+- `exchange-qualified tickers` 主链路透传
+- `yfinance` 统一 retry/backoff helper
+- `initialize all debate state fields`
 
-相对而言，以下方向中文仓库已有部分覆盖或替代实现：
+当前仍未对齐、且后续可以继续评估的点主要是：
+
+- `malformed CSV / NaN parsing hardening`
+- `comma-separated indicators in get_indicators`
+- `debate round config to ConditionalLogic`
+- `http_client support for SSL certificate customization`
+- `set process-level UTF-8 default for cross-platform consistency`
+
+相对而言，以下方向中文仓库已有部分覆盖或替代实现，暂不需要专门追：
 
 - UTF-8 编码处理：仓库中已大量显式使用 `encoding='utf-8'`
 - 多 Provider 配置：中文仓库已自行实现更重的配置管理与前端 UI
 - 安装脚本与依赖整理：中文仓库有自己的本地部署脚本体系
+- 报告落库的 list 内容稳定化：当前仓库也已做等价修复
 
 ## 6. 推荐动作
 
 如果后续要继续对齐上游，我建议按以下顺序：
 
-1. 先看上游 `Responses API` 这条链路
-   - 目标：提升长文本报告稳定性
+1. 先补剩余的低风险稳定性修复
+   - `malformed CSV / NaN`
+   - `comma-separated indicators`
+   - `debate round config`
+   - `http_client / SSL customization`
 
-2. 再看 `yfinance` 指数退避与 ticker 透传
-   - 目标：提升港股 / 美股行情链路稳定性
+2. 保持当前已回补能力的验证和收口
+   - Responses API 灰度链路
+   - yfinance retry/backoff
+   - ticker 身份标准化
+   - Anthropic effort 支持
 
-3. 最后再评估 Anthropic effort 与五档评级体系
-   - 前者是模型能力增强
-   - 后者属于行为层变更，风险更高
+3. 最后再评估五档评级体系与 portfolio manager 重写
+   - 这是行为层变更，不是简单 bugfix
 
 ## 7. 当前判断
 
-截至 2026-03-28，我的判断是：
+截至 2026-03-29，我的判断是：
 
 - 上游在中文仓库分叉后，**确实还有值得关注的重要更新**
 - 这些更新主要集中在：
@@ -222,5 +286,6 @@
   - 多市场 ticker 身份稳定性
   - `yfinance` 稳定性
   - 状态机/解析边界修复
+- 其中最高价值、最低冲突的一批能力，当前仓库已经完成了局部回补
 - 中文仓库并不是简单落后，而是**在完全不同的产品方向上走得更远**
 - 因此后续同步不应追求“全量跟上游”，而应采用“按价值点回补”的策略

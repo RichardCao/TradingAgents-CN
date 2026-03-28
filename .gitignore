@@ -20,6 +20,7 @@ __pycache__/
 .env
 .env.local
 .env.*.local
+.env.docker.runtime
 .env.db
 .env.mongodb*
 frontend/dist

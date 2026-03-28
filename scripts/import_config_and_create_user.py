@@ -17,6 +17,7 @@
 import json
 import sys
 import hashlib
+import os
 from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Any, Optional
@@ -43,11 +44,11 @@ def load_env_config(script_dir: Path) -> dict:
     env_file = script_dir.parent / '.env'
 
     config = {
-        'mongodb_port': 27017,  # 默认端口
-        'mongodb_host': 'localhost',
-        'mongodb_username': 'admin',
-        'mongodb_password': 'tradingagents123',
-        'mongodb_database': 'tradingagents'
+        'mongodb_port': int(os.getenv('MONGODB_PORT', '27017')),  # 默认端口
+        'mongodb_host': os.getenv('MONGODB_HOST', 'localhost'),
+        'mongodb_username': os.getenv('MONGODB_USERNAME', 'admin'),
+        'mongodb_password': os.getenv('MONGODB_PASSWORD', 'tradingagents123'),
+        'mongodb_database': os.getenv('MONGODB_DATABASE', 'tradingagents')
     }
 
     if env_file.exists():
@@ -74,8 +75,13 @@ def load_env_config(script_dir: Path) -> dict:
             print(f"⚠️  警告: 读取 .env 文件失败: {e}")
             print(f"   使用默认配置")
     else:
-        print(f"⚠️  警告: .env 文件不存在: {env_file}")
-        print(f"   使用默认配置")
+        env_overrides_present = any(
+            os.getenv(key)
+            for key in ['MONGODB_HOST', 'MONGODB_PORT', 'MONGODB_USERNAME', 'MONGODB_PASSWORD', 'MONGODB_DATABASE']
+        )
+        if not env_overrides_present:
+            print(f"⚠️  警告: .env 文件不存在: {env_file}")
+            print(f"   使用默认配置")
 
     return config
 
@@ -529,11 +535,10 @@ def main():
         print(f"   密码: {DEFAULT_ADMIN['password']}")
     
     print(f"\n📝 后续步骤:")
-    print(f"   1. 重启后端服务: docker restart tradingagents-backend")
-    print(f"   2. 访问前端并使用默认账号登录")
-    print(f"   3. 检查系统配置是否正确加载")
+    print(f"   1. 访问前端并使用默认账号登录")
+    print(f"   2. 检查系统配置是否正确加载")
+    print(f"   3. 如需手动刷新配置，可执行: docker compose restart backend")
 
 
 if __name__ == "__main__":
     main()
-

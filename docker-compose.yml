@@ -1,16 +1,12 @@
-version: '3.8'
-
-# TradingAgents-CN v1.0.0-preview Docker Compose配置
-# 支持前后端分离部署
+# TradingAgents-CN Docker Compose 配置
+# 当前架构：Vue 3 前端 + FastAPI 后端 + MongoDB + Redis
 
 services:
-  # FastAPI 后端服务
   backend:
     build:
       context: .
       dockerfile: Dockerfile.backend
     image: tradingagents-backend:v1.0.0-preview
-    container_name: tradingagents-backend
     ports:
       - "8000:8000"
     volumes:
@@ -21,25 +17,39 @@ services:
       # 数据目录映射
       - ./data:/app/data
     env_file:
-      - .env
+      - .env.docker.runtime
     environment:
       PYTHONUNBUFFERED: 1
       PYTHONDONTWRITEBYTECODE: 1
       TZ: "Asia/Shanghai"
-      # 日志配置
       TRADINGAGENTS_LOG_LEVEL: "INFO"
       TRADINGAGENTS_LOG_DIR: "/app/logs"
       TRADINGAGENTS_LOG_FILE: "/app/logs/tradingagents.log"
-      # Docker专用数据库配置
-      TRADINGAGENTS_MONGODB_URL: mongodb://admin:tradingagents123@mongodb:27017/tradingagents?authSource=admin
-      TRADINGAGENTS_REDIS_URL: redis://:tradingagents123@redis:6379
-      TRADINGAGENTS_CACHE_TYPE: redis
-      # Docker环境标识
       DOCKER_CONTAINER: "true"
-      # API配置
+      MONGODB_ENABLED: "true"
+      REDIS_ENABLED: "true"
+      MONGODB_HOST: "mongodb"
+      MONGODB_PORT: "27017"
+      MONGODB_USERNAME: "admin"
+      MONGODB_PASSWORD: "tradingagents123"
+      MONGODB_DATABASE: "tradingagents"
+      MONGODB_DATABASE_NAME: "tradingagents"
+      MONGO_DB: "tradingagents"
+      MONGODB_AUTH_SOURCE: "admin"
+      MONGODB_CONNECTION_STRING: mongodb://admin:tradingagents123@mongodb:27017/tradingagents?authSource=admin
+      MONGODB_URL: mongodb://admin:tradingagents123@mongodb:27017/tradingagents?authSource=admin
+      MONGO_URI: mongodb://admin:tradingagents123@mongodb:27017/tradingagents?authSource=admin
+      USE_MONGODB_STORAGE: "true"
+      REDIS_HOST: "redis"
+      REDIS_PORT: "6379"
+      REDIS_PASSWORD: "tradingagents123"
+      REDIS_DB: "0"
+      REDIS_URL: redis://:tradingagents123@redis:6379/0
+      TRADINGAGENTS_MONGODB_URL: mongodb://admin:tradingagents123@mongodb:27017/tradingagents?authSource=admin
+      TRADINGAGENTS_REDIS_URL: redis://:tradingagents123@redis:6379/0
+      TRADINGAGENTS_CACHE_TYPE: redis
       API_HOST: "0.0.0.0"
       API_PORT: "8000"
-      # CORS配置
       CORS_ORIGINS: "http://localhost:3000,http://localhost:8080,http://localhost:5173"
     depends_on:
       mongodb:
@@ -61,26 +71,22 @@ services:
         max-size: "100m"
         max-file: "3"
 
-  # Vue 3 前端服务
   frontend:
     build:
       context: .
       dockerfile: Dockerfile.frontend
     image: tradingagents-frontend:v1.0.0-preview
-    container_name: tradingagents-frontend
     ports:
       - "3000:80"
     environment:
       TZ: "Asia/Shanghai"
-      # 后端API地址
-      VITE_API_BASE_URL: "http://localhost:8000"
     depends_on:
       backend:
         condition: service_healthy
     networks:
       - tradingagents-network
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost"]
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1/health"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -92,10 +98,8 @@ services:
         max-size: "100m"
         max-file: "3"
 
-  # MongoDB 数据库服务
   mongodb:
     image: mongo:4.4
-    container_name: tradingagents-mongodb
     restart: unless-stopped
     ports:
       - "27017:27017"
@@ -106,7 +110,6 @@ services:
       TZ: "Asia/Shanghai"
     volumes:
       - mongodb_data:/data/db
-      - ./scripts/mongo-init.js:/docker-entrypoint-initdb.d/mongo-init.js:ro
     networks:
       - tradingagents-network
     healthcheck:
@@ -121,10 +124,8 @@ services:
         max-size: "50m"
         max-file: "2"
 
-  # Redis 缓存服务
   redis:
     image: redis:7-alpine
-    container_name: tradingagents-redis
     restart: unless-stopped
     ports:
       - "6379:6379"
@@ -147,10 +148,8 @@ services:
         max-size: "50m"
         max-file: "2"
 
-  # Redis Commander 管理界面（可选）
   redis-commander:
     image: ghcr.io/joeferner/redis-commander:latest
-    container_name: tradingagents-redis-commander
     restart: unless-stopped
     ports:
       - "8081:8081"
@@ -170,10 +169,8 @@ services:
     profiles:
       - management
 
-  # Mongo Express 管理界面（可选）
   mongo-express:
     image: mongo-express:latest
-    container_name: tradingagents-mongo-express
     restart: unless-stopped
     ports:
       - "8082:8081"
@@ -191,18 +188,13 @@ services:
     profiles:
       - management
 
-# 数据卷定义
 volumes:
   mongodb_data:
     driver: local
-    name: tradingagents_mongodb_data
   redis_data:
     driver: local
-    name: tradingagents_redis_data
 
-# 网络定义
 networks:
   tradingagents-network:
     driver: bridge
     name: tradingagents-network
-
