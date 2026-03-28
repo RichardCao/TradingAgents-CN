@@ -14,6 +14,7 @@ from pydantic import BaseModel
 from .auth_db import get_current_user
 from ..core.database import get_mongo_db
 from ..utils.timezone import to_config_tz
+from ..utils.report_language_utils import get_report_section_title, normalize_report_markdown
 import logging
 
 logger = logging.getLogger("webapi")
@@ -57,6 +58,33 @@ def _normalize_reports_map(reports: Any) -> Dict[str, str]:
         if text:
             normalized[str(key)] = text
     return normalized
+
+
+def _build_markdown_download_content(report_doc: Dict[str, Any]) -> str:
+    stock_symbol = report_doc.get("stock_symbol", "unknown")
+    analysis_date = report_doc.get("analysis_date", datetime.now().strftime("%Y-%m-%d"))
+    language = report_doc.get("language", "zh-CN")
+    reports = _normalize_reports_map(report_doc.get("reports", {}))
+
+    content_parts = [
+        f"# {stock_symbol} 分析报告",
+        f"**分析日期**: {analysis_date}",
+        f"**分析师**: {', '.join(report_doc.get('analysts', []))}",
+        f"**研究深度**: {report_doc.get('research_depth', 1)}",
+        "",
+    ]
+
+    if report_doc.get("summary"):
+        content_parts.append("## 执行摘要")
+        content_parts.append(str(report_doc["summary"]).strip())
+        content_parts.append("")
+
+    for module_name, module_content in reports.items():
+        if module_content:
+            content_parts.append(normalize_report_markdown(module_content, module_name, language))
+            content_parts.append("")
+
+    return "\n".join(content_parts)
 
 def get_stock_name(stock_code: str) -> str:
     """
@@ -509,30 +537,7 @@ async def download_report(
 
         elif format == "markdown":
             # Markdown格式下载
-            reports = _normalize_reports_map(doc.get("reports", {}))
-            content_parts = []
-
-            # 添加标题
-            content_parts.append(f"# {stock_symbol} 分析报告")
-            content_parts.append(f"**分析日期**: {analysis_date}")
-            content_parts.append(f"**分析师**: {', '.join(doc.get('analysts', []))}")
-            content_parts.append(f"**研究深度**: {doc.get('research_depth', 1)}")
-            content_parts.append("")
-
-            # 添加摘要
-            if doc.get("summary"):
-                content_parts.append("## 执行摘要")
-                content_parts.append(doc["summary"])
-                content_parts.append("")
-
-            # 添加各模块内容
-            for module_name, module_content in reports.items():
-                if isinstance(module_content, str) and module_content.strip():
-                    content_parts.append(f"## {module_name}")
-                    content_parts.append(module_content)
-                    content_parts.append("")
-
-            content = "\n".join(content_parts)
+            content = _build_markdown_download_content(doc)
             filename = f"{stock_symbol}_{analysis_date}_report.md"
             media_type = "text/markdown"
 

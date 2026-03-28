@@ -757,6 +757,29 @@ class TestRecentChanges(unittest.TestCase):
         self.assertIn('"summary": "第二段"', normalized["market_report"])
         self.assertIn('"title": "报告"', normalized["fundamentals_report"])
 
+    def test_reports_router_builds_localized_markdown_download_content(self):
+        content = reports_router._build_markdown_download_content(
+            {
+                "stock_symbol": "09992",
+                "analysis_date": "2026-03-28",
+                "analysts": ["market", "fundamentals"],
+                "research_depth": 3,
+                "language": "zh-CN",
+                "summary": "这是摘要",
+                "reports": {
+                    "market_report": "market_report\n\n### Neutral Analyst\n\n分析内容",
+                    "fundamentals_report": {"title": "估值", "score": 0.82},
+                },
+            }
+        )
+
+        self.assertIn("# 09992 分析报告", content)
+        self.assertIn("## 执行摘要", content)
+        self.assertIn("## 市场技术分析", content)
+        self.assertIn("## 中性风险评估", content)
+        self.assertIn("## 基本面分析", content)
+        self.assertNotIn("## market_report", content)
+
     def test_hk_unified_news_tool_falls_back_to_sync_provider_inside_running_loop(self):
         toolkit = Toolkit(config={})
         class FakeForeignStockService:
