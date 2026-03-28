@@ -49,14 +49,26 @@ class Propagator:
             "exchange_code": market_info.get("exchange_code"),
             "board": market_info.get("board"),
             "investment_debate_state": InvestDebateState(
-                {"history": "", "current_response": "", "count": 0}
+                {
+                    "bull_history": "",
+                    "bear_history": "",
+                    "history": "",
+                    "current_response": "",
+                    "judge_decision": "",
+                    "count": 0,
+                }
             ),
             "risk_debate_state": RiskDebateState(
                 {
+                    "risky_history": "",
+                    "safe_history": "",
+                    "neutral_history": "",
                     "history": "",
+                    "latest_speaker": "",
                     "current_risky_response": "",
                     "current_safe_response": "",
                     "current_neutral_response": "",
+                    "judge_decision": "",
                     "count": 0,
                 }
             ),

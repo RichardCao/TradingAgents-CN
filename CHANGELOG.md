@@ -34,6 +34,7 @@
 - `backfill`: 为港股 / 美股 `yfinance` 调用新增统一重试与指数退避 helper，并接入主要行情、基础信息与 K 线读取链路。
 - `backfill`: 统一补齐 `yfinance / yahoo_finance` 数据源别名映射，避免数据库配置为 `yfinance` 时被误过滤。
 - `backfill`: 为主分析链路补充统一股票身份结构，新增 `ticker_clean / ticker_qualified / display_symbol / exchange_code / board` 等字段，并优先接入图初始状态、报告落库与新闻查询入口。
+- `backfill`: 补全 `investment_debate_state / risk_debate_state` 的初始默认键，降低后续节点对缺省字段的隐性依赖。
 - `backfill`: 为长文本阶段新增 OpenAI Responses API 灰度接入层，当前仅对白名单阶段 `Research Manager` 且满足 OpenAI 路径条件时启用，失败自动回退到现有 LangChain 路径。
 - `backfill`: 为 Anthropic 模型配置补充 `effort / thinking_budget_tokens / thinking_type` 后端支持，并接入普通模式与 mixed mode 的 LLM 创建链路。
 - 优化单股同步数据源选择逻辑：

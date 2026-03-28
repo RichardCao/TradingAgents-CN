@@ -200,6 +200,14 @@ class TestRecentChanges(unittest.TestCase):
         self.assertEqual(state["display_symbol"], "09992")
         self.assertEqual(state["market_name"], "港股")
         self.assertIn("标准代码为 09992.HK", state["messages"][0].content)
+        self.assertEqual(state["investment_debate_state"]["bull_history"], "")
+        self.assertEqual(state["investment_debate_state"]["bear_history"], "")
+        self.assertEqual(state["investment_debate_state"]["judge_decision"], "")
+        self.assertEqual(state["risk_debate_state"]["latest_speaker"], "")
+        self.assertEqual(state["risk_debate_state"]["risky_history"], "")
+        self.assertEqual(state["risk_debate_state"]["safe_history"], "")
+        self.assertEqual(state["risk_debate_state"]["neutral_history"], "")
+        self.assertEqual(state["risk_debate_state"]["judge_decision"], "")
 
     def test_openai_responses_gray_path_only_targets_whitelisted_stage(self):
         class FakeOfficialChatOpenAI:
