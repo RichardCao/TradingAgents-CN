@@ -711,6 +711,20 @@ class TestRecentChanges(unittest.TestCase):
         self.assertLessEqual(data["estimated_total_time"], 300)
         self.assertGreaterEqual(data["remaining_time"], 0)
 
+    def test_stringify_report_content_handles_list_and_dict(self):
+        as_list = simple_analysis_service._stringify_report_content(
+            ["第一段", {"summary": "第二段"}, ["第三段", None, ""]]
+        )
+        as_dict = simple_analysis_service._stringify_report_content(
+            {"title": "报告", "score": 0.82}
+        )
+
+        self.assertIn("第一段", as_list)
+        self.assertIn('"summary": "第二段"', as_list)
+        self.assertIn("第三段", as_list)
+        self.assertIn('"title": "报告"', as_dict)
+        self.assertIn('"score": 0.82', as_dict)
+
     def test_hk_unified_news_tool_falls_back_to_sync_provider_inside_running_loop(self):
         toolkit = Toolkit(config={})
         class FakeForeignStockService:

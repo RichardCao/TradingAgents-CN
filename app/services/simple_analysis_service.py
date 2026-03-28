@@ -4,6 +4,7 @@
 """
 
 import asyncio
+import json
 import uuid
 import logging
 import re
@@ -243,6 +244,31 @@ def _build_user_friendly_error_message(
     )
 
     return "\n".join(lines)
+
+
+def _stringify_report_content(content: Any) -> str:
+    """Normalize report-like content into stable UTF-8 text for saving/exporting."""
+    if content is None:
+        return ""
+
+    if isinstance(content, str):
+        return content
+
+    if isinstance(content, list):
+        normalized_parts = []
+        for item in content:
+            item_text = _stringify_report_content(item).strip()
+            if item_text:
+                normalized_parts.append(item_text)
+        return "\n\n".join(normalized_parts)
+
+    if isinstance(content, dict):
+        try:
+            return json.dumps(content, ensure_ascii=False, indent=2)
+        except Exception:
+            return str(content)
+
+    return str(content)
 
 
 async def get_provider_by_model_name(model_name: str) -> str:
@@ -3013,10 +3039,7 @@ class SimpleAnalysisService:
                     if state_key in state:
                         # 提取模块内容
                         module_content = state[state_key]
-                        if isinstance(module_content, str):
-                            report_content = module_content
-                        else:
-                            report_content = str(module_content)
+                        report_content = _stringify_report_content(module_content)
 
                         # 保存到文件 - 使用web目录的文件名
                         file_path = reports_dir / module_info['filename']
