@@ -20,6 +20,7 @@ from app.services.memory_state_manager import TaskState, TaskStatus
 from app.services.stock_data_service import StockDataService
 from app.services.tags_service import TagsService
 from app.services import simple_analysis_service
+from app.routers import analysis as analysis_router
 from tradingagents.dataflows.providers.sina_finance import (
     SinaFinancePageClient,
     infer_sina_page_url,
@@ -716,6 +717,20 @@ class TestRecentChanges(unittest.TestCase):
             ["第一段", {"summary": "第二段"}, ["第三段", None, ""]]
         )
         as_dict = simple_analysis_service._stringify_report_content(
+            {"title": "报告", "score": 0.82}
+        )
+
+        self.assertIn("第一段", as_list)
+        self.assertIn('"summary": "第二段"', as_list)
+        self.assertIn("第三段", as_list)
+        self.assertIn('"title": "报告"', as_dict)
+        self.assertIn('"score": 0.82', as_dict)
+
+    def test_analysis_router_stringify_report_value_handles_list_and_dict(self):
+        as_list = analysis_router._stringify_report_value(
+            ["第一段", {"summary": "第二段"}, ["第三段", None, ""]]
+        )
+        as_dict = analysis_router._stringify_report_value(
             {"title": "报告", "score": 0.82}
         )
 

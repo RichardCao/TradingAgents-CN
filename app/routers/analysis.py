@@ -11,6 +11,7 @@ import logging
 import time
 import uuid
 import asyncio
+import json
 
 from app.routers.auth_db import get_current_user
 from app.services.queue_service import get_queue_service, QueueService
@@ -24,6 +25,31 @@ from app.models.analysis import (
 
 router = APIRouter()
 logger = logging.getLogger("webapi")
+
+
+def _stringify_report_value(value: Any) -> str:
+    """Normalize reports payload values into stable text for API responses."""
+    if value is None:
+        return ""
+
+    if isinstance(value, str):
+        return value.strip()
+
+    if isinstance(value, list):
+        parts = []
+        for item in value:
+            item_text = _stringify_report_value(item)
+            if item_text:
+                parts.append(item_text)
+        return "\n\n".join(parts).strip()
+
+    if isinstance(value, dict):
+        try:
+            return json.dumps(value, ensure_ascii=False, indent=2).strip()
+        except Exception:
+            return str(value).strip()
+
+    return str(value).strip()
 
 # 兼容性：保留原有的请求模型
 class SingleAnalyzeRequest(BaseModel):
@@ -475,15 +501,9 @@ async def get_task_result(
                 # 确保每个报告内容都是字符串且不为空
                 cleaned_reports = {}
                 for key, value in reports.items():
-                    if isinstance(value, str) and value.strip():
-                        # 确保字符串不为空
-                        cleaned_reports[key] = value.strip()
-                    elif value is not None:
-                        # 如果不是字符串，转换为字符串
-                        str_value = str(value).strip()
-                        if str_value:  # 只保存非空字符串
-                            cleaned_reports[key] = str_value
-                    # 如果value为None或空字符串，则跳过该报告
+                    normalized_value = _stringify_report_value(value)
+                    if normalized_value:
+                        cleaned_reports[key] = normalized_value
 
                 result_data['reports'] = cleaned_reports
                 logger.info(f"📊 [RESULT] 清理reports字段，包含 {len(cleaned_reports)} 个有效报告")
