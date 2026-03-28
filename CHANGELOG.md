@@ -35,6 +35,7 @@
 - `backfill`: 统一补齐 `yfinance / yahoo_finance` 数据源别名映射，避免数据库配置为 `yfinance` 时被误过滤。
 - `backfill`: 为主分析链路补充统一股票身份结构，新增 `ticker_clean / ticker_qualified / display_symbol / exchange_code / board` 等字段，并优先接入图初始状态、报告落库与新闻查询入口。
 - `backfill`: 为长文本阶段新增 OpenAI Responses API 灰度接入层，当前仅对白名单阶段 `Research Manager` 且满足 OpenAI 路径条件时启用，失败自动回退到现有 LangChain 路径。
+- `backfill`: 为 Anthropic 模型配置补充 `effort / thinking_budget_tokens / thinking_type` 后端支持，并接入普通模式与 mixed mode 的 LLM 创建链路。
 - 优化单股同步数据源选择逻辑：
   - 仅同步实时行情时仅允许 `AKShare`
   - 不含实时行情时允许 `Tushare / AKShare`
@@ -82,6 +83,7 @@
   - `yfinance` transient error 重试与无效代码不重试
   - `ticker_qualified` 标准化字段与图初始状态透传
   - OpenAI Responses API 灰度适配与阶段白名单控制
+  - Anthropic `effort / thinking` 配置透传
   - 报告中文标题规范化
 - 默认后端标准套件已恢复为稳定可跑：
   - `471 passed, 2 skipped, 287 deselected`

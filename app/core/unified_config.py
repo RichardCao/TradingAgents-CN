@@ -112,6 +112,9 @@ class UnifiedConfigManager:
                     api_base=model.get("base_url"),
                     max_tokens=model.get("max_tokens", 4000),
                     temperature=model.get("temperature", 0.7),
+                    effort=model.get("effort"),
+                    thinking_budget_tokens=model.get("thinking_budget_tokens"),
+                    thinking_type=model.get("thinking_type"),
                     enabled=model.get("enabled", True),
                     description=f"{model.get('provider', '')} {model.get('model_name', '')}"
                 )
@@ -136,6 +139,9 @@ class UnifiedConfigManager:
                 "base_url": llm_config.api_base,
                 "max_tokens": llm_config.max_tokens,
                 "temperature": llm_config.temperature,
+                "effort": llm_config.effort,
+                "thinking_budget_tokens": llm_config.thinking_budget_tokens,
+                "thinking_type": llm_config.thinking_type,
                 "enabled": llm_config.enabled
             }
             

@@ -31,6 +31,9 @@ class ModelConfig:
     base_url: Optional[str] = None  # 自定义API地址
     max_tokens: int = 4000  # 最大token数
     temperature: float = 0.7  # 温度参数
+    effort: Optional[str] = None  # 推理强度（Anthropic 等）
+    thinking_budget_tokens: Optional[int] = None  # 思考预算 token 数
+    thinking_type: Optional[str] = None  # 思考模式（enabled/adaptive）
     enabled: bool = True  # 是否启用
 
 
@@ -42,4 +45,3 @@ class PricingConfig:
     input_price_per_1k: float  # 输入token价格（每1000个token）
     output_price_per_1k: float  # 输出token价格（每1000个token）
     currency: str = "CNY"  # 货币单位
-

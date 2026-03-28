@@ -38,6 +38,39 @@ from .reflection import Reflector
 from .signal_processing import SignalProcessor
 
 
+def _build_anthropic_reasoning_kwargs(model_config: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """Extract Anthropic reasoning-related kwargs from a model config dict."""
+    if not isinstance(model_config, dict):
+        return {}
+
+    kwargs: Dict[str, Any] = {}
+    effort = model_config.get("effort")
+    if isinstance(effort, str) and effort.strip().lower() in {"low", "medium", "high", "max"}:
+        kwargs["effort"] = effort.strip().lower()
+
+    thinking_budget_tokens = model_config.get("thinking_budget_tokens")
+    thinking_type = model_config.get("thinking_type")
+    try:
+        budget_value = int(thinking_budget_tokens) if thinking_budget_tokens not in (None, "") else None
+    except Exception:
+        budget_value = None
+
+    if isinstance(thinking_type, str) and thinking_type.strip():
+        normalized_type = thinking_type.strip().lower()
+    elif budget_value:
+        normalized_type = "enabled"
+    else:
+        normalized_type = None
+
+    if normalized_type in {"enabled", "adaptive"}:
+        thinking_payload: Dict[str, Any] = {"type": normalized_type}
+        if normalized_type == "enabled" and budget_value and budget_value > 0:
+            thinking_payload["budget_tokens"] = budget_value
+        kwargs["thinking"] = thinking_payload
+
+    return kwargs
+
+
 def create_llm_by_provider(
     provider: str,
     model: str,
@@ -47,6 +80,7 @@ def create_llm_by_provider(
     timeout: int,
     api_key: str = None,
     retry_times: int = 3,
+    model_config: Optional[Dict[str, Any]] = None,
 ):
     """
     根据 provider 创建对应的 LLM 实例
@@ -154,6 +188,7 @@ def create_llm_by_provider(
         )
 
     elif provider.lower() == "anthropic":
+        anthropic_kwargs = _build_anthropic_reasoning_kwargs(model_config)
         return ChatAnthropic(
             model=model,
             base_url=backend_url,
@@ -161,6 +196,7 @@ def create_llm_by_provider(
             max_tokens=max_tokens,
             timeout=timeout,
             max_retries=retry_times,
+            **anthropic_kwargs,
         )
 
     elif provider.lower() in ["qianfan", "custom_openai"]:
@@ -272,6 +308,7 @@ class TradingAgentsGraph:
                 timeout=quick_timeout,
                 api_key=self.config.get("quick_api_key"),  # 🔥 传递 API Key
                 retry_times=quick_retries,
+                model_config=quick_config,
             )
 
             self.deep_thinking_llm = create_llm_by_provider(
@@ -283,6 +320,7 @@ class TradingAgentsGraph:
                 timeout=deep_timeout,
                 api_key=self.config.get("deep_api_key"),  # 🔥 传递 API Key
                 retry_times=deep_retries,
+                model_config=deep_config,
             )
 
             logger.info(f"✅ [混合模式] LLM 实例创建成功")
@@ -380,20 +418,24 @@ class TradingAgentsGraph:
         elif self.config["llm_provider"].lower() == "anthropic":
             logger.info(f"🔧 [Anthropic-快速模型] max_tokens={quick_max_tokens}, temperature={quick_temperature}, timeout={quick_timeout}s")
             logger.info(f"🔧 [Anthropic-深度模型] max_tokens={deep_max_tokens}, temperature={deep_temperature}, timeout={deep_timeout}s")
+            logger.info(f"🔧 [Anthropic-快速模型] reasoning={_build_anthropic_reasoning_kwargs(quick_config)}")
+            logger.info(f"🔧 [Anthropic-深度模型] reasoning={_build_anthropic_reasoning_kwargs(deep_config)}")
 
             self.deep_thinking_llm = ChatAnthropic(
                 model=self.config["deep_think_llm"],
                 base_url=self.config["backend_url"],
                 temperature=deep_temperature,
                 max_tokens=deep_max_tokens,
-                timeout=deep_timeout
+                timeout=deep_timeout,
+                **_build_anthropic_reasoning_kwargs(deep_config),
             )
             self.quick_thinking_llm = ChatAnthropic(
                 model=self.config["quick_think_llm"],
                 base_url=self.config["backend_url"],
                 temperature=quick_temperature,
                 max_tokens=quick_max_tokens,
-                timeout=quick_timeout
+                timeout=quick_timeout,
+                **_build_anthropic_reasoning_kwargs(quick_config),
             )
         elif self.config["llm_provider"].lower() == "google":
             # 使用 Google OpenAI 兼容适配器，解决工具调用格式不匹配问题

@@ -43,6 +43,7 @@ from tradingagents.dataflows.providers.common.yfinance_client import (
     get_ticker_info,
 )
 from tradingagents.graph.propagation import Propagator
+from tradingagents.graph.trading_graph import _build_anthropic_reasoning_kwargs
 from tradingagents.llm_adapters.openai_responses_adapter import (
     invoke_responses_text,
     supports_openai_responses,
@@ -263,6 +264,31 @@ class TestRecentChanges(unittest.TestCase):
             )
 
         self.assertEqual(message.content, "第一段第二段")
+
+    def test_anthropic_reasoning_kwargs_support_effort_and_thinking_budget(self):
+        kwargs = _build_anthropic_reasoning_kwargs(
+            {
+                "effort": "medium",
+                "thinking_budget_tokens": 8000,
+            }
+        )
+
+        self.assertEqual(kwargs["effort"], "medium")
+        self.assertEqual(
+            kwargs["thinking"],
+            {"type": "enabled", "budget_tokens": 8000},
+        )
+
+    def test_anthropic_reasoning_kwargs_support_adaptive_mode(self):
+        kwargs = _build_anthropic_reasoning_kwargs(
+            {
+                "effort": "high",
+                "thinking_type": "adaptive",
+            }
+        )
+
+        self.assertEqual(kwargs["effort"], "high")
+        self.assertEqual(kwargs["thinking"], {"type": "adaptive"})
 
     def test_report_language_utils_translate_english_headings_to_chinese(self):
         content = "## market_report\n\n### Neutral Analyst\n\n分析内容"

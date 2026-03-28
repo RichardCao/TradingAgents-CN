@@ -194,6 +194,9 @@ class LLMConfig(BaseModel):
     temperature: float = Field(default=0.7, ge=0.0, le=2.0, description="温度参数")
     timeout: int = Field(default=180, description="请求超时时间(秒)")
     retry_times: int = Field(default=3, description="重试次数")
+    effort: Optional[str] = Field(default=None, description="推理强度（如 anthropic: low/medium/high/max）")
+    thinking_budget_tokens: Optional[int] = Field(default=None, description="思考预算 token 数")
+    thinking_type: Optional[str] = Field(default=None, description="思考模式（如 enabled/adaptive）")
     enabled: bool = Field(default=True, description="是否启用")
     description: Optional[str] = Field(None, description="配置描述")
 
