@@ -51,6 +51,28 @@ REPORT_SECTION_TITLES: Dict[str, Dict[str, str]] = {
 }
 
 
+ANALYST_DISPLAY_NAMES: Dict[str, Dict[str, str]] = {
+    "zh-CN": {
+        "market": "市场分析师",
+        "fundamentals": "基本面分析师",
+        "news": "新闻分析师",
+        "sentiment": "市场情绪分析师",
+        "social": "社交媒体分析师",
+        "trader": "交易员",
+        "risk": "风险分析师",
+    },
+    "en-US": {
+        "market": "Market Analyst",
+        "fundamentals": "Fundamentals Analyst",
+        "news": "News Analyst",
+        "sentiment": "Sentiment Analyst",
+        "social": "Social Media Analyst",
+        "trader": "Trader",
+        "risk": "Risk Analyst",
+    },
+}
+
+
 SECTION_ALIASES: Dict[str, tuple[str, ...]] = {
     "market_report": ("market_report", "market report"),
     "sentiment_report": ("sentiment_report", "sentiment report"),
@@ -138,3 +160,18 @@ def normalize_reports_dict(
     for report_key, content in (reports or {}).items():
         normalized_reports[report_key] = normalize_report_markdown(content, report_key, language)
     return normalized_reports
+
+
+def format_analyst_display_names(
+    analysts: Optional[list[str]],
+    language: Optional[str] = "zh-CN",
+) -> list[str]:
+    lang = "zh-CN" if (language or "zh-CN").startswith("zh") else "en-US"
+    mapping = ANALYST_DISPLAY_NAMES.get(lang, {})
+    formatted: list[str] = []
+    for analyst in analysts or []:
+        key = str(analyst).strip()
+        if not key:
+            continue
+        formatted.append(mapping.get(key, key))
+    return formatted

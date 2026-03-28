@@ -14,7 +14,11 @@ from pydantic import BaseModel
 from .auth_db import get_current_user
 from ..core.database import get_mongo_db
 from ..utils.timezone import to_config_tz
-from ..utils.report_language_utils import get_report_section_title, normalize_report_markdown
+from ..utils.report_language_utils import (
+    format_analyst_display_names,
+    get_report_section_title,
+    normalize_report_markdown,
+)
 import logging
 
 logger = logging.getLogger("webapi")
@@ -64,12 +68,13 @@ def _build_markdown_download_content(report_doc: Dict[str, Any]) -> str:
     stock_symbol = report_doc.get("stock_symbol", "unknown")
     analysis_date = report_doc.get("analysis_date", datetime.now().strftime("%Y-%m-%d"))
     language = report_doc.get("language", "zh-CN")
+    analysts = format_analyst_display_names(report_doc.get("analysts", []), language)
     reports = _normalize_reports_map(report_doc.get("reports", {}))
 
     content_parts = [
         f"# {stock_symbol} 分析报告",
         f"**分析日期**: {analysis_date}",
-        f"**分析师**: {', '.join(report_doc.get('analysts', []))}",
+        f"**分析师**: {', '.join(analysts)}",
         f"**研究深度**: {report_doc.get('research_depth', 1)}",
         "",
     ]

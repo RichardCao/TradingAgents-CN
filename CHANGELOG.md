@@ -42,6 +42,7 @@
 - `fix`: 修正分析结果接口清理 `reports` 字段时对 `list / dict` 内容直接 `str(...)` 返回的问题，现与落盘口径保持一致。
 - `fix`: 修正报告详情 / 模块内容 / Markdown 下载对 `reports` 中 `list / dict` 内容的返回口径，现统一做稳定文本化处理。
 - `fix`: 修正报告 Markdown 下载仍直接暴露内部模块键名的问题，现对齐中文标题规范并避免重复标题。
+- `fix`: 修正报告下载/导出中直接展示分析师内部 ID 的问题，常见分析师标识现已本地化显示。
 - `backfill`: 为长文本阶段新增 OpenAI Responses API 灰度接入层，当前仅对白名单阶段 `Research Manager` 且满足 OpenAI 路径条件时启用，失败自动回退到现有 LangChain 路径。
 - `backfill`: 为 Anthropic 模型配置补充 `effort / thinking_budget_tokens / thinking_type` 后端支持，并接入普通模式与 mixed mode 的 LLM 创建链路。
 - 优化单股同步数据源选择逻辑：

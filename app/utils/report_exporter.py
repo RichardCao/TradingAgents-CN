@@ -15,7 +15,11 @@ import tempfile
 from pathlib import Path
 from typing import Dict, Any, Optional
 
-from app.utils.report_language_utils import get_report_section_title, normalize_report_markdown
+from app.utils.report_language_utils import (
+    format_analyst_display_names,
+    get_report_section_title,
+    normalize_report_markdown,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -87,6 +91,7 @@ class ReportExporter:
         reports = report_doc.get("reports", {})
         summary = report_doc.get("summary", "")
         language = report_doc.get("language", "zh-CN")
+        analyst_display_names = format_analyst_display_names(analysts, language)
         
         content_parts = []
         
@@ -94,8 +99,8 @@ class ReportExporter:
         content_parts.append(f"# {stock_symbol} 股票分析报告")
         content_parts.append("")
         content_parts.append(f"**分析日期**: {analysis_date}")
-        if analysts:
-            content_parts.append(f"**分析师**: {', '.join(analysts)}")
+        if analyst_display_names:
+            content_parts.append(f"**分析师**: {', '.join(analyst_display_names)}")
         content_parts.append(f"**研究深度**: {research_depth}")
         content_parts.append("")
         content_parts.append("---")
