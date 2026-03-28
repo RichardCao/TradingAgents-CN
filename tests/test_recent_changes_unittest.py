@@ -39,6 +39,7 @@ from tradingagents.agents.utils.agent_utils import (
     _resolve_company_name_for_news,
 )
 from tradingagents.agents.managers.risk_manager import create_risk_manager
+from tradingagents.agents.trader.trader import create_trader
 from tradingagents.dataflows.providers.common.yfinance_client import (
     get_ticker_history,
     get_ticker_info,
@@ -252,6 +253,36 @@ class TestRecentChanges(unittest.TestCase):
         self.assertIn("NEWS_ONLY_MARKER", captured["curr_situation"])
         self.assertEqual(captured["n_matches"], 2)
         self.assertEqual(result["final_trade_decision"], "建议继续观察并控制仓位。")
+
+    def test_trader_prompt_uses_hkd_for_hk_stocks(self):
+        captured = {}
+
+        def fake_stream_text_response(llm, messages, stage_name):
+            captured["messages"] = messages
+            captured["stage_name"] = stage_name
+            return SimpleNamespace(content="最终交易建议: **持有**")
+
+        trader = create_trader(llm=object(), memory=None)
+        state = {
+            "company_of_interest": "09992",
+            "investment_plan": "维持观察仓位",
+            "market_report": "市场报告",
+            "sentiment_report": "情绪报告",
+            "news_report": "新闻报告",
+            "fundamentals_report": "基本面报告",
+        }
+
+        with patch(
+            "tradingagents.agents.trader.trader.stream_text_response",
+            side_effect=fake_stream_text_response,
+        ):
+            result = trader(state)
+
+        system_prompt = captured["messages"][0]["content"]
+        self.assertEqual(captured["stage_name"], "Trader")
+        self.assertIn("如果是港股，请使用港币（HK$）作为价格单位", system_prompt)
+        self.assertIn("当前分析的股票代码是 09992，请使用正确的货币单位：港币（HK$）", system_prompt)
+        self.assertEqual(result["trader_investment_plan"], "最终交易建议: **持有**")
 
     def test_openai_responses_gray_path_only_targets_whitelisted_stage(self):
         class FakeOfficialChatOpenAI:
