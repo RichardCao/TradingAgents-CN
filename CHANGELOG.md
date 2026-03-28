@@ -56,3 +56,9 @@
   - 标签去重与标签改名传播
   - 港股实时行情格式化
   - 报告中文标题规范化
+- 默认后端标准套件已恢复为稳定可跑：
+  - `471 passed, 2 skipped, 287 deselected`
+- 前端工程校验已通过：
+  - `pnpm lint`
+  - `pnpm type-check`
+  - `pnpm build`

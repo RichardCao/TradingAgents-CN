@@ -150,38 +150,43 @@
           </template>
         </el-table-column>
 
-        <el-table-column prop="current_price" label="当前价格" width="100">
+        <el-table-column prop="current_price" label="当前价格" width="150">
           <template #default="{ row }">
             <el-tooltip
-              v-if="row.current_price !== null && row.current_price !== undefined && row.price_display_hint"
-              :content="row.price_display_hint"
+              v-if="row.current_price !== null && row.current_price !== undefined"
+              :disabled="!getPriceTooltip(row)"
+              :content="getPriceTooltip(row) || ''"
               placement="top"
             >
-              <span :class="getPriceClass(row)">
-                {{ getCurrencySymbol(row) }}{{ formatPrice(row.current_price) }}
-              </span>
+              <div class="quote-cell">
+                <span :class="getPriceClass(row)">
+                  {{ getCurrencySymbol(row) }}{{ formatPrice(row.current_price) }}
+                </span>
+                <div v-if="getQuoteTimestampLabel(row)" class="quote-timestamp">
+                  {{ getQuoteTimestampLabel(row) }}
+                </div>
+              </div>
             </el-tooltip>
-            <span
-              v-else-if="row.current_price !== null && row.current_price !== undefined"
-              :class="getPriceClass(row)"
-            >
-              {{ getCurrencySymbol(row) }}{{ formatPrice(row.current_price) }}
-            </span>
             <span v-else>-</span>
           </template>
         </el-table-column>
 
-        <el-table-column prop="change_percent" label="涨跌幅" width="100">
+        <el-table-column prop="change_percent" label="涨跌幅" width="150">
           <template #default="{ row }">
             <el-tooltip
               v-if="row.change_percent !== null && row.change_percent !== undefined"
-              :disabled="!row.change_display_hint"
-              :content="row.change_display_hint || ''"
+              :disabled="!getChangeTooltip(row)"
+              :content="getChangeTooltip(row) || ''"
               placement="top"
             >
-              <span :class="getChangeClass(row.change_percent, row.change_display_mode)">
-                {{ formatPercent(row.change_percent) }}
-              </span>
+              <div class="quote-cell">
+                <span :class="getChangeClass(row.change_percent, row.change_display_mode)">
+                  {{ formatPercent(row.change_percent) }}
+                </span>
+                <div v-if="getQuoteTimestampLabel(row)" class="quote-timestamp">
+                  {{ getQuoteTimestampLabel(row) }}
+                </div>
+              </div>
             </el-tooltip>
             <span v-else>-</span>
           </template>
@@ -199,12 +204,6 @@
             >
               {{ tag }}
             </el-tag>
-          </template>
-        </el-table-column>
-
-        <el-table-column prop="added_at" label="添加时间" width="120">
-          <template #default="{ row }">
-            {{ formatDate(row.added_at) }}
           </template>
         </el-table-column>
 
@@ -2035,8 +2034,70 @@ const formatPercent = (value: any): string => {
   return `${sign}${n.toFixed(2)}%`
 }
 
-const formatDate = (dateStr: string) => {
-  return new Date(dateStr).toLocaleDateString('zh-CN')
+const formatQuoteCaptureTime = (value?: string | null): string | null => {
+  if (!value) return null
+  return new Date(value).toLocaleString('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false
+  })
+}
+
+const getQuoteUpdatedDate = (row: FavoriteItem): string | null => {
+  if (!row.quote_updated_at) return null
+  const value = row.quote_updated_at.includes('T')
+    ? row.quote_updated_at.split('T')[0]
+    : row.quote_updated_at.split(' ')[0]
+  return value.replace(/\//g, '-')
+}
+
+const getQuotePrimaryTimestamp = (row: FavoriteItem): string | null => {
+  const updatedDate = getQuoteUpdatedDate(row)
+  const captureTime = formatQuoteCaptureTime(row.quote_updated_at)
+
+  if (row.quote_trade_date && updatedDate && row.quote_trade_date === updatedDate && captureTime) {
+    return `行情 ${captureTime}`
+  }
+
+  if (row.quote_trade_date) {
+    return `行情 ${row.quote_trade_date}`
+  }
+
+  if (captureTime) {
+    return `抓取 ${captureTime}`
+  }
+
+  return null
+}
+
+const getQuoteSecondaryTimestamp = (row: FavoriteItem): string | null => {
+  if (!row.quote_updated_at) return null
+
+  const captureTime = formatQuoteCaptureTime(row.quote_updated_at)
+  const updatedDate = getQuoteUpdatedDate(row)
+  if (!captureTime) return null
+
+  if (row.quote_trade_date && updatedDate && row.quote_trade_date === updatedDate) {
+    return null
+  }
+
+  return `抓取 ${captureTime}`
+}
+
+const getPriceTooltip = (row: FavoriteItem): string | null => {
+  const parts = [row.price_display_hint, getQuoteSecondaryTimestamp(row)].filter(Boolean)
+  return parts.length ? parts.join(' | ') : null
+}
+
+const getChangeTooltip = (row: FavoriteItem): string | null => {
+  const parts = [row.change_display_hint, getQuoteSecondaryTimestamp(row)].filter(Boolean)
+  return parts.length ? parts.join(' | ') : null
+}
+
+const getQuoteTimestampLabel = (row: FavoriteItem): string | null => {
+  return getQuotePrimaryTimestamp(row)
 }
 
 const formatDateTime = (dateStr?: string | null) => {
@@ -2767,6 +2828,19 @@ onMounted(() => {
   }
 
   .favorites-list-card {
+    .quote-cell {
+      display: flex;
+      flex-direction: column;
+      line-height: 1.35;
+    }
+
+    .quote-timestamp {
+      margin-top: 2px;
+      font-size: 12px;
+      color: var(--el-text-color-secondary);
+      white-space: nowrap;
+    }
+
     .empty-state {
       padding: 40px;
       text-align: center;

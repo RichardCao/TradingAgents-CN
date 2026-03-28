@@ -252,26 +252,27 @@ class StockDataService:
         try:
             db = get_mongo_db()
             symbol6 = str(symbol).zfill(6)
+            payload = dict(update_data)
 
             # 添加更新时间
-            update_data["updated_at"] = datetime.utcnow()
+            payload["updated_at"] = datetime.utcnow()
 
             # 确保symbol字段存在
-            if "symbol" not in update_data:
-                update_data["symbol"] = symbol6
+            if "symbol" not in payload:
+                payload["symbol"] = symbol6
 
             # 🔥 确保 code 字段存在
-            if "code" not in update_data:
-                update_data["code"] = symbol6
+            if "code" not in payload:
+                payload["code"] = symbol6
 
             # 🔥 确保 source 字段存在
-            if "source" not in update_data:
-                update_data["source"] = source
+            if "source" not in payload:
+                payload["source"] = source
 
             # 🔥 执行更新 (使用 code + source 联合查询)
             result = await db[self.basic_info_collection].update_one(
                 {"code": symbol6, "source": source},
-                {"$set": update_data},
+                {"$set": payload},
                 upsert=True
             )
 
@@ -297,20 +298,21 @@ class StockDataService:
         try:
             db = get_mongo_db()
             symbol6 = str(symbol).zfill(6)
+            payload = dict(quote_data)
 
             # 添加更新时间
-            quote_data["updated_at"] = datetime.utcnow()
+            payload["updated_at"] = datetime.utcnow()
 
             # 🔥 确保 symbol 和 code 字段都存在（兼容旧索引）
-            if "symbol" not in quote_data:
-                quote_data["symbol"] = symbol6
-            if "code" not in quote_data:
-                quote_data["code"] = symbol6  # code 和 symbol 使用相同的值
+            if "symbol" not in payload:
+                payload["symbol"] = symbol6
+            if "code" not in payload:
+                payload["code"] = symbol6  # code 和 symbol 使用相同的值
 
             # 执行更新 (使用symbol字段作为查询条件)
             result = await db[self.market_quotes_collection].update_one(
                 {"symbol": symbol6},
-                {"$set": quote_data},
+                {"$set": payload},
                 upsert=True
             )
 

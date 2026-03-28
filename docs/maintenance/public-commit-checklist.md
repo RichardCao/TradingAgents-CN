@@ -126,6 +126,71 @@ rg -n --hidden --glob '!*.svg' --glob '!*.png' --glob '!*.jpg' --glob '!*.pdf' \
 - 公开版一键部署脚本
 - 测试样例密钥占位符清理
 
+### 当前这批改动的最终建议提交范围
+
+建议提交：
+
+- 核心后端功能：
+  - `app/models/analysis.py`
+  - `app/models/user.py`
+  - `app/routers/favorites.py`
+  - `app/services/favorites_service.py`
+  - `app/services/foreign_stock_service.py`
+  - `app/services/simple_analysis_service.py`
+  - `app/services/stock_data_service.py`
+  - `app/services/tags_service.py`
+- 前端功能与交互：
+  - `frontend/src/api/`
+  - `frontend/src/components/`
+  - `frontend/src/main.ts`
+  - `frontend/src/router/index.ts`
+  - `frontend/src/stores/`
+  - `frontend/src/views/`
+- TradingAgents 适配层：
+  - `tradingagents/agents/utils/agent_utils.py`
+  - `tradingagents/config/config_manager.py`
+  - `tradingagents/config/runtime_settings.py`
+  - `tradingagents/dataflows/news/google_news.py`
+  - `tradingagents/dataflows/news/google_news_rss.py`
+  - `tradingagents/dataflows/providers/china/tushare.py`
+  - `tradingagents/dataflows/providers/hk/hk_stock.py`
+  - `tradingagents/dataflows/providers/sina_finance.py`
+  - `tradingagents/graph/conditional_logic.py`
+- 测试与测试配置：
+  - `pyproject.toml`
+  - `tests/README.md`
+  - `tests/conftest.py`
+  - 这轮修改过、且属于默认/标准回归链路的 `tests/**/*.py`
+- 文档：
+  - `CHANGELOG.md`
+  - `docs/maintenance/public-commit-checklist.md`
+  - `docs/maintenance/release-note-summary.md`
+  - `docs/maintenance/docker-assessment-2026-03.md`
+  - `docs/maintenance/upstream-review-2026-03.md`
+  - 本轮同步修改过的 API key / 安全 / 配置相关文档
+- 这次确认一并纳入的历史脚本清洁性修正：
+  - `scripts/test_api_key_edit.py`
+  - `scripts/test_api_key_priority.py`
+  - `scripts/test_api_key_validation.py`
+  - `scripts/补充行业信息_akshare.py`
+
+建议不要提交：
+
+- 本地生成配置与运行产物：
+  - `.env`
+  - `.env.local`
+  - `frontend/.env.local`
+  - `config/models.json`
+  - `config/settings.json`
+  - `frontend/dist/`
+  - `logs/`
+  - `runtime/`
+- `codex` 本地专用脚本：
+  - `scripts/startup/bootstrap_codex_local.py`
+  - `scripts/startup/init_codex_local_db.py`
+  - `scripts/startup/start_local_codex_stack.sh`
+- 其他本轮未明确纳入范围、且偏一次性人工排查的脚本式文件
+
 ### 当前这批改动的建议纳入文件
 
 建议按下面的分组纳入：

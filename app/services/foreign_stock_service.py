@@ -873,6 +873,33 @@ class ForeignStockService:
         except Exception:
             change_percent = None
 
+        raw_trade_date = (
+            data.get('trade_date')
+            or data.get('latest_trading_day')
+            or data.get('date')
+        )
+        trade_date = raw_trade_date
+        if isinstance(trade_date, str) and ' ' in trade_date:
+            trade_date = trade_date.split(' ')[0]
+
+        updated_at = (
+            data.get('updated_at')
+            or data.get('timestamp')
+            or data.get('trade_time')
+        )
+        if isinstance(updated_at, (int, float)):
+            try:
+                updated_at = datetime.fromtimestamp(updated_at).isoformat()
+            except Exception:
+                updated_at = None
+        elif isinstance(updated_at, str):
+            updated_at = updated_at.strip() or None
+            if updated_at and trade_date and len(updated_at) == 8 and updated_at.count(':') == 2:
+                updated_at = f"{trade_date}T{updated_at}"
+
+        if not updated_at:
+            updated_at = datetime.now().isoformat()
+
         return {
             'code': code,
             'name': data.get('name', f'港股{code}'),
@@ -882,12 +909,13 @@ class ForeignStockService:
             'high': data.get('high'),
             'low': data.get('low'),
             'volume': data.get('volume'),
+            'pre_close': data.get('pre_close'),
             'change_percent': change_percent,
             'pct_chg': change_percent,
             'currency': data.get('currency', 'HKD'),
             'source': source,
-            'trade_date': data.get('trade_date') or data.get('timestamp', datetime.now().strftime('%Y-%m-%d')),
-            'updated_at': datetime.now().isoformat()
+            'trade_date': trade_date,
+            'updated_at': updated_at
         }
 
     def _format_hk_info(self, data: Dict, code: str, source: str) -> Dict:

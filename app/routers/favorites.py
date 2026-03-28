@@ -3,7 +3,6 @@
 """
 
 from typing import Dict, List, Optional
-from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 import logging
@@ -45,7 +44,6 @@ class FavoriteStockResponse(BaseModel):
     stock_name: str
     market: str
     currency: Optional[str] = None
-    added_at: str
     tags: List[str]
     notes: str
     alert_price_high: Optional[float]
@@ -54,6 +52,8 @@ class FavoriteStockResponse(BaseModel):
     current_price: Optional[float] = None
     change_percent: Optional[float] = None
     volume: Optional[int] = None
+    quote_trade_date: Optional[str] = None
+    quote_updated_at: Optional[str] = None
 
 
 @router.get("/", response_model=dict)
