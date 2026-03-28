@@ -16,6 +16,10 @@ from collections import defaultdict
 from tradingagents.dataflows.cache import get_cache
 
 # 复用现有数据源提供者
+from tradingagents.dataflows.providers.common.yfinance_client import (
+    get_ticker_history,
+    get_ticker_info,
+)
 from tradingagents.dataflows.providers.hk.hk_stock import HKStockProvider
 
 logger = logging.getLogger(__name__)
@@ -357,6 +361,7 @@ class ForeignStockService:
             # 🔥 只有这些是有效的数据源名称：alpha_vantage, yahoo_finance, finnhub
             source_handlers = {
                 'alpha_vantage': ('alpha_vantage', self._get_us_quote_from_alpha_vantage),
+                'yfinance': ('yfinance', self._get_us_quote_from_yfinance),
                 'yahoo_finance': ('yfinance', self._get_us_quote_from_yfinance),
                 'finnhub': ('finnhub', self._get_us_quote_from_finnhub),
             }
@@ -424,16 +429,13 @@ class ForeignStockService:
 
     def _get_us_quote_from_yfinance(self, code: str) -> Dict:
         """从yfinance获取美股行情"""
-        import yfinance as yf
-
-        ticker = yf.Ticker(code)
-        hist = ticker.history(period='1d')
+        hist = get_ticker_history(code, period='1d', market='US')
 
         if hist.empty:
             raise Exception("无数据")
 
         latest = hist.iloc[-1]
-        info = ticker.info
+        info = get_ticker_info(code, market='US')
 
         return {
             'name': info.get('longName') or info.get('shortName'),
@@ -555,6 +557,7 @@ class ForeignStockService:
         # 数据源名称映射
         source_handlers = {
             'akshare': ('akshare', self._get_hk_info_from_akshare),
+            'yfinance': ('yfinance', self._get_hk_info_from_yfinance),
             'yahoo_finance': ('yfinance', self._get_hk_info_from_yfinance),
             'finnhub': ('finnhub', self._get_hk_info_from_finnhub),
         }
@@ -634,6 +637,7 @@ class ForeignStockService:
         # 数据源名称映射
         source_handlers = {
             'alpha_vantage': ('alpha_vantage', self._get_us_info_from_alpha_vantage),
+            'yfinance': ('yfinance', self._get_us_info_from_yfinance),
             'yahoo_finance': ('yfinance', self._get_us_info_from_yfinance),
             'finnhub': ('finnhub', self._get_us_info_from_finnhub),
         }
@@ -738,6 +742,7 @@ class ForeignStockService:
         # 数据源名称映射
         source_handlers = {
             'akshare': ('akshare', self._get_hk_kline_from_akshare),
+            'yfinance': ('yfinance', self._get_hk_kline_from_yfinance),
             'yahoo_finance': ('yfinance', self._get_hk_kline_from_yfinance),
             'finnhub': ('finnhub', self._get_hk_kline_from_finnhub),
         }
@@ -815,6 +820,7 @@ class ForeignStockService:
         # 数据源名称映射
         source_handlers = {
             'alpha_vantage': ('alpha_vantage', self._get_us_kline_from_alpha_vantage),
+            'yfinance': ('yfinance', self._get_us_kline_from_yfinance),
             'yahoo_finance': ('yfinance', self._get_us_kline_from_yfinance),
             'finnhub': ('finnhub', self._get_us_kline_from_finnhub),
         }
@@ -988,10 +994,7 @@ class ForeignStockService:
 
     def _get_us_info_from_yfinance(self, code: str) -> Dict:
         """从yfinance获取美股基础信息"""
-        import yfinance as yf
-
-        ticker = yf.Ticker(code)
-        info = ticker.info
+        info = get_ticker_info(code, market='US')
 
         if not info:
             raise Exception("无数据")
@@ -1075,10 +1078,6 @@ class ForeignStockService:
 
     def _get_us_kline_from_yfinance(self, code: str, period: str, limit: int) -> List[Dict]:
         """从yfinance获取美股K线数据"""
-        import yfinance as yf
-
-        ticker = yf.Ticker(code)
-
         # 周期映射
         period_map = {
             'day': '1d',
@@ -1091,7 +1090,12 @@ class ForeignStockService:
         }
 
         interval = period_map.get(period, '1d')
-        hist = ticker.history(period=f'{limit}d', interval=interval)
+        hist = get_ticker_history(
+            code,
+            period=f'{limit}d',
+            interval=interval,
+            market='US',
+        )
 
         if hist.empty:
             raise Exception("无数据")
@@ -1653,10 +1657,7 @@ class ForeignStockService:
 
     def _get_hk_info_from_yfinance(self, code: str) -> Dict:
         """从Yahoo Finance获取港股基础信息"""
-        import yfinance as yf
-
-        ticker = yf.Ticker(f"{code}.HK")
-        info = ticker.info
+        info = get_ticker_info(f"{code}.HK", market='HK')
 
         return {
             'name': info.get('longName') or info.get('shortName') or f'港股{code}',
@@ -1741,11 +1742,6 @@ class ForeignStockService:
 
     def _get_hk_kline_from_yfinance(self, code: str, period: str, limit: int) -> List[Dict]:
         """从Yahoo Finance获取港股K线数据"""
-        import yfinance as yf
-        import pandas as pd
-
-        ticker = yf.Ticker(f"{code}.HK")
-
         # 周期映射
         period_map = {
             'day': '1d',
@@ -1758,7 +1754,12 @@ class ForeignStockService:
         }
 
         interval = period_map.get(period, '1d')
-        hist = ticker.history(period=f'{limit}d', interval=interval)
+        hist = get_ticker_history(
+            f"{code}.HK",
+            period=f'{limit}d',
+            interval=interval,
+            market='HK',
+        )
 
         if hist.empty:
             raise Exception("无数据")

@@ -4,7 +4,7 @@ import unittest
 from datetime import datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pandas as pd
 
@@ -37,6 +37,10 @@ from tradingagents.agents.utils.agent_utils import (
     Toolkit,
     _build_google_query_candidates_for_news,
     _resolve_company_name_for_news,
+)
+from tradingagents.dataflows.providers.common.yfinance_client import (
+    get_ticker_history,
+    get_ticker_info,
 )
 
 
@@ -230,6 +234,54 @@ class TestRecentChanges(unittest.TestCase):
 
         self.assertIsNone(formatted["trade_date"])
         self.assertIsNotNone(formatted["updated_at"])
+
+    def test_yfinance_client_retries_transient_history_error(self):
+        attempts = {"count": 0}
+        fake_ticker = MagicMock()
+
+        def fake_history(**kwargs):
+            attempts["count"] += 1
+            if attempts["count"] < 3:
+                raise Exception("Too Many Requests from upstream")
+            return "ok-history"
+
+        fake_ticker.history.side_effect = fake_history
+
+        with patch(
+            "tradingagents.dataflows.providers.common.yfinance_client.yf.Ticker",
+            return_value=fake_ticker,
+        ), patch(
+            "tradingagents.dataflows.providers.common.yfinance_client.time.sleep"
+        ) as mock_sleep:
+            result = get_ticker_history(
+                "09992.HK",
+                market="HK",
+                max_retries=3,
+                base_delay=1.0,
+                rate_limit_delay=5.0,
+                period="2d",
+            )
+
+        self.assertEqual(result, "ok-history")
+        self.assertEqual(attempts["count"], 3)
+        self.assertEqual([call.args[0] for call in mock_sleep.call_args_list], [5.0, 5.0])
+
+    def test_yfinance_client_does_not_retry_invalid_symbol_info_error(self):
+        class InvalidTicker:
+            @property
+            def info(self):
+                raise Exception("No timezone found, symbol may be delisted")
+
+        with patch(
+            "tradingagents.dataflows.providers.common.yfinance_client.yf.Ticker",
+            return_value=InvalidTicker(),
+        ), patch(
+            "tradingagents.dataflows.providers.common.yfinance_client.time.sleep"
+        ) as mock_sleep:
+            with self.assertRaises(Exception):
+                get_ticker_info("BAD", market="US", max_retries=3, base_delay=1.0)
+
+        mock_sleep.assert_not_called()
 
     def test_parse_sina_cn_quote_line(self):
         line = (

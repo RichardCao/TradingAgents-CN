@@ -5,7 +5,6 @@
 
 import pandas as pd
 import numpy as np
-import yfinance as yf
 import time
 from typing import Optional, Dict, Any
 from datetime import datetime, timedelta
@@ -15,6 +14,10 @@ from tradingagents.config.runtime_settings import get_timezone_name
 import os
 
 from tradingagents.config.runtime_settings import get_float, get_int
+from tradingagents.dataflows.providers.common.yfinance_client import (
+    get_ticker_history,
+    get_ticker_info,
+)
 # 导入日志模块
 from tradingagents.utils.logging_manager import get_logger
 logger = get_logger('agents')
@@ -69,44 +72,28 @@ class HKStockProvider:
 
             logger.info(f"🇭🇰 获取港股数据: {symbol} ({start_date} 到 {end_date})")
 
-            # 多次重试获取数据
-            for attempt in range(self.max_retries):
-                try:
-                    self._wait_for_rate_limit()
+            self._wait_for_rate_limit()
 
-                    # 使用yfinance获取数据
-                    ticker = yf.Ticker(symbol)
-                    data = ticker.history(
-                        start=start_date,
-                        end=end_date,
-                        timeout=self.timeout
-                    )
+            data = get_ticker_history(
+                symbol,
+                start=start_date,
+                end=end_date,
+                timeout=self.timeout,
+                market="HK",
+                max_retries=self.max_retries,
+                base_delay=1.0,
+                rate_limit_delay=float(self.rate_limit_wait),
+            )
 
-                    if not data.empty:
-                        # 数据预处理
-                        data = data.reset_index()
-                        data['Symbol'] = symbol
+            if not data.empty:
+                # 数据预处理
+                data = data.reset_index()
+                data['Symbol'] = symbol
 
-                        logger.info(f"✅ 港股数据获取成功: {symbol}, {len(data)}条记录")
-                        return data
-                    else:
-                        logger.warning(f"⚠️ 港股数据为空: {symbol} (尝试 {attempt + 1}/{self.max_retries})")
+                logger.info(f"✅ 港股数据获取成功: {symbol}, {len(data)}条记录")
+                return data
 
-                except Exception as e:
-                    error_msg = str(e)
-                    logger.error(f"❌ 港股数据获取失败 (尝试 {attempt + 1}/{self.max_retries}): {error_msg}")
-
-                    # 检查是否是频率限制错误
-                    if "Rate limited" in error_msg or "Too Many Requests" in error_msg:
-                        if attempt < self.max_retries - 1:
-                            logger.info(f"⏳ 检测到频率限制，等待{self.rate_limit_wait}秒...")
-                            time.sleep(self.rate_limit_wait)
-                        else:
-                            logger.error(f"❌ 频率限制，跳过重试")
-                            break
-                    else:
-                        if attempt < self.max_retries - 1:
-                            time.sleep(2 ** attempt)  # 指数退避
+            logger.warning(f"⚠️ 港股数据为空: {symbol}")
 
             logger.error(f"❌ 港股数据获取最终失败: {symbol}")
             return None
@@ -132,8 +119,13 @@ class HKStockProvider:
 
             self._wait_for_rate_limit()
 
-            ticker = yf.Ticker(symbol)
-            info = ticker.info
+            info = get_ticker_info(
+                symbol,
+                market="HK",
+                max_retries=self.max_retries,
+                base_delay=1.0,
+                rate_limit_delay=float(self.rate_limit_wait),
+            )
 
             if info and 'symbol' in info:
                 return {
@@ -181,10 +173,16 @@ class HKStockProvider:
 
             self._wait_for_rate_limit()
 
-            ticker = yf.Ticker(symbol)
-
             # 使用2天窗口，便于同时拿到昨收并计算涨跌幅
-            data = ticker.history(period="2d", timeout=self.timeout)
+            data = get_ticker_history(
+                symbol,
+                period="2d",
+                timeout=self.timeout,
+                market="HK",
+                max_retries=self.max_retries,
+                base_delay=1.0,
+                rate_limit_delay=float(self.rate_limit_wait),
+            )
 
             if not data.empty:
                 latest = data.iloc[-1]
