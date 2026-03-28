@@ -38,6 +38,7 @@ from tradingagents.agents.utils.agent_utils import (
     _build_google_query_candidates_for_news,
     _resolve_company_name_for_news,
 )
+from tradingagents.agents.managers.risk_manager import create_risk_manager
 from tradingagents.dataflows.providers.common.yfinance_client import (
     get_ticker_history,
     get_ticker_info,
@@ -208,6 +209,49 @@ class TestRecentChanges(unittest.TestCase):
         self.assertEqual(state["risk_debate_state"]["safe_history"], "")
         self.assertEqual(state["risk_debate_state"]["neutral_history"], "")
         self.assertEqual(state["risk_debate_state"]["judge_decision"], "")
+
+    def test_risk_manager_uses_fundamentals_report_instead_of_reusing_news_report(self):
+        captured = {}
+
+        class FakeLLM:
+            def invoke(self, prompt):
+                captured["prompt"] = prompt
+                return SimpleNamespace(content="建议继续观察并控制仓位。")
+
+        class FakeMemory:
+            def get_memories(self, curr_situation, n_matches=2):
+                captured["curr_situation"] = curr_situation
+                captured["n_matches"] = n_matches
+                return []
+
+        risk_manager = create_risk_manager(FakeLLM(), memory=FakeMemory())
+        state = {
+            "company_of_interest": "测试公司",
+            "market_report": "市场报告: 趋势偏强",
+            "sentiment_report": "情绪报告: 偏中性",
+            "news_report": "新闻报告: 只包含新闻关键词 NEWS_ONLY_MARKER",
+            "fundamentals_report": "基本面报告: 只包含基本面关键词 FUNDAMENTALS_ONLY_MARKER",
+            "investment_plan": "原始交易计划",
+            "risk_debate_state": {
+                "history": "风险辩论历史",
+                "risky_history": "",
+                "safe_history": "",
+                "neutral_history": "",
+                "latest_speaker": "Neutral Analyst",
+                "current_risky_response": "",
+                "current_safe_response": "",
+                "current_neutral_response": "",
+                "judge_decision": "",
+                "count": 3,
+            },
+        }
+
+        result = risk_manager(state)
+
+        self.assertIn("FUNDAMENTALS_ONLY_MARKER", captured["curr_situation"])
+        self.assertIn("NEWS_ONLY_MARKER", captured["curr_situation"])
+        self.assertEqual(captured["n_matches"], 2)
+        self.assertEqual(result["final_trade_decision"], "建议继续观察并控制仓位。")
 
     def test_openai_responses_gray_path_only_targets_whitelisted_stage(self):
         class FakeOfficialChatOpenAI:
