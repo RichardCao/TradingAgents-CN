@@ -73,6 +73,34 @@ ANALYST_DISPLAY_NAMES: Dict[str, Dict[str, str]] = {
 }
 
 
+RESEARCH_DEPTH_DISPLAY_NAMES: Dict[str, Dict[str, str]] = {
+    "zh-CN": {
+        "1": "快速",
+        "2": "基础",
+        "3": "标准",
+        "4": "深度",
+        "5": "全面",
+        "快速": "快速",
+        "基础": "基础",
+        "标准": "标准",
+        "深度": "深度",
+        "全面": "全面",
+    },
+    "en-US": {
+        "1": "Quick",
+        "2": "Basic",
+        "3": "Standard",
+        "4": "Deep",
+        "5": "Comprehensive",
+        "快速": "Quick",
+        "基础": "Basic",
+        "标准": "Standard",
+        "深度": "Deep",
+        "全面": "Comprehensive",
+    },
+}
+
+
 SECTION_ALIASES: Dict[str, tuple[str, ...]] = {
     "market_report": ("market_report", "market report"),
     "sentiment_report": ("sentiment_report", "sentiment report"),
@@ -175,3 +203,15 @@ def format_analyst_display_names(
             continue
         formatted.append(mapping.get(key, key))
     return formatted
+
+
+def format_research_depth_display(
+    research_depth: Optional[object],
+    language: Optional[str] = "zh-CN",
+) -> str:
+    lang = "zh-CN" if (language or "zh-CN").startswith("zh") else "en-US"
+    mapping = RESEARCH_DEPTH_DISPLAY_NAMES.get(lang, {})
+    key = "" if research_depth is None else str(research_depth).strip()
+    if not key:
+        return ""
+    return mapping.get(key, key)

@@ -17,6 +17,7 @@ from typing import Dict, Any, Optional
 
 from app.utils.report_language_utils import (
     format_analyst_display_names,
+    format_research_depth_display,
     get_report_section_title,
     normalize_report_markdown,
 )
@@ -92,6 +93,7 @@ class ReportExporter:
         summary = report_doc.get("summary", "")
         language = report_doc.get("language", "zh-CN")
         analyst_display_names = format_analyst_display_names(analysts, language)
+        research_depth_display = format_research_depth_display(research_depth, language)
         
         content_parts = []
         
@@ -101,7 +103,7 @@ class ReportExporter:
         content_parts.append(f"**分析日期**: {analysis_date}")
         if analyst_display_names:
             content_parts.append(f"**分析师**: {', '.join(analyst_display_names)}")
-        content_parts.append(f"**研究深度**: {research_depth}")
+        content_parts.append(f"**研究深度**: {research_depth_display or research_depth}")
         content_parts.append("")
         content_parts.append("---")
         content_parts.append("")

@@ -32,6 +32,7 @@ from tradingagents.dataflows.news.google_news import getNewsData
 from tradingagents.dataflows.news.google_news_rss import parse_google_news_rss
 from app.utils.report_language_utils import (
     format_analyst_display_names,
+    format_research_depth_display,
     get_report_section_title,
     normalize_report_markdown,
     normalize_reports_dict,
@@ -777,6 +778,7 @@ class TestRecentChanges(unittest.TestCase):
         self.assertIn("# 09992 分析报告", content)
         self.assertIn("## 执行摘要", content)
         self.assertIn("**分析师**: 市场分析师, 基本面分析师", content)
+        self.assertIn("**研究深度**: 标准", content)
         self.assertIn("## 市场技术分析", content)
         self.assertIn("## 中性风险评估", content)
         self.assertIn("## 基本面分析", content)
@@ -792,6 +794,11 @@ class TestRecentChanges(unittest.TestCase):
             formatted,
             ["市场分析师", "基本面分析师", "新闻分析师", "市场情绪分析师", "社交媒体分析师", "unknown"],
         )
+
+    def test_format_research_depth_display_localizes_numeric_and_text(self):
+        self.assertEqual(format_research_depth_display(3, "zh-CN"), "标准")
+        self.assertEqual(format_research_depth_display("4", "zh-CN"), "深度")
+        self.assertEqual(format_research_depth_display("全面", "en-US"), "Comprehensive")
 
     def test_hk_unified_news_tool_falls_back_to_sync_provider_inside_running_loop(self):
         toolkit = Toolkit(config={})

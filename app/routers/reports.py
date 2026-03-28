@@ -16,6 +16,7 @@ from ..core.database import get_mongo_db
 from ..utils.timezone import to_config_tz
 from ..utils.report_language_utils import (
     format_analyst_display_names,
+    format_research_depth_display,
     get_report_section_title,
     normalize_report_markdown,
 )
@@ -69,13 +70,14 @@ def _build_markdown_download_content(report_doc: Dict[str, Any]) -> str:
     analysis_date = report_doc.get("analysis_date", datetime.now().strftime("%Y-%m-%d"))
     language = report_doc.get("language", "zh-CN")
     analysts = format_analyst_display_names(report_doc.get("analysts", []), language)
+    research_depth = format_research_depth_display(report_doc.get("research_depth", 1), language)
     reports = _normalize_reports_map(report_doc.get("reports", {}))
 
     content_parts = [
         f"# {stock_symbol} 分析报告",
         f"**分析日期**: {analysis_date}",
         f"**分析师**: {', '.join(analysts)}",
-        f"**研究深度**: {report_doc.get('research_depth', 1)}",
+        f"**研究深度**: {research_depth or report_doc.get('research_depth', 1)}",
         "",
     ]
 
