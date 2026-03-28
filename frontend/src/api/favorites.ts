@@ -8,7 +8,6 @@ export interface FavoriteItem {
   currency?: string
   board?: string
   exchange?: string
-  added_at?: string
   tags?: string[]
   notes?: string
   alert_price_high?: number | null
@@ -16,6 +15,8 @@ export interface FavoriteItem {
   current_price?: number | null
   change_percent?: number | null
   volume?: number | null
+  quote_trade_date?: string | null
+  quote_updated_at?: string | null
   price_display_mode?: string | null
   price_display_hint?: string | null
   change_display_mode?: string | null

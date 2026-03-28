@@ -83,6 +83,7 @@ PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 .venv/bin/python -m pytest -q
 
 - `pnpm lint`
 - `pnpm type-check`
+- `pnpm build`
 
 目前仓库里没有接入统一的 `vitest/jest/playwright` 标准入口，因此不要把前端工程校验等同于“前端全量测试”。
 
@@ -97,6 +98,8 @@ PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 .venv/bin/python -m pytest -q -m integration
 ```
 
 如果没有配置这些变量，对应测试应自动 `skipped`。
+
+如果你要单独运行带 `@pytest.mark.anyio` 的异步测试文件，请直接使用常规 `pytest` 入口，不要再额外设置 `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1`，否则 `anyio` 插件不会被加载。
 
 ### 运行历史脚本式测试
 

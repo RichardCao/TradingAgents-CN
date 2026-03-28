@@ -2,11 +2,15 @@
 用户自定义标签服务
 """
 from __future__ import annotations
+import logging
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 from bson import ObjectId
 
 from app.core.database import get_mongo_db
+
+
+logger = logging.getLogger(__name__)
 
 
 class TagsService:
@@ -31,6 +35,10 @@ class TagsService:
     def _normalize_user_id(self, user_id: str) -> str:
         # 统一为字符串存储，便于兼容开源版(admin)与未来ObjectId
         return str(user_id)
+
+    def _parse_tag_object_id(self, tag_id: str) -> Optional[ObjectId]:
+        """安全解析标签 ObjectId，避免无效输入直接抛异常。"""
+        return ObjectId(tag_id) if ObjectId.is_valid(tag_id) else None
 
     def _format_doc(self, doc: Dict[str, Any]) -> Dict[str, Any]:
         return {
@@ -117,8 +125,8 @@ class TagsService:
                         user_query,
                         {"$set": {"favorite_stocks": updated_favorites}},
                     )
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("同步 users 集合标签重命名失败 user_id=%s: %s", normalized_user_id, exc)
 
     async def list_tags(self, user_id: str) -> List[Dict[str, Any]]:
         db = await self._get_db()
@@ -146,10 +154,15 @@ class TagsService:
         return self._format_doc(doc)
 
     async def update_tag(self, user_id: str, tag_id: str, *, name: Optional[str] = None, color: Optional[str] = None, sort_order: Optional[int] = None) -> bool:
+        tag_object_id = self._parse_tag_object_id(tag_id)
+        if tag_object_id is None:
+            return False
+
         db = await self._get_db()
         await self.ensure_indexes()
         normalized_user_id = self._normalize_user_id(user_id)
-        existing_tag = await db.user_tags.find_one({"_id": ObjectId(tag_id), "user_id": normalized_user_id})
+
+        existing_tag = await db.user_tags.find_one({"_id": tag_object_id, "user_id": normalized_user_id})
         if not existing_tag:
             return False
 
@@ -164,7 +177,7 @@ class TagsService:
         if len(update) == 1:  # 只有updated_at
             return True
         result = await db.user_tags.update_one(
-            {"_id": ObjectId(tag_id), "user_id": normalized_user_id},
+            {"_id": tag_object_id, "user_id": normalized_user_id},
             {"$set": update}
         )
         if result.matched_count <= 0:
@@ -182,15 +195,20 @@ class TagsService:
         return True
 
     async def delete_tag(self, user_id: str, tag_id: str) -> bool:
+        tag_object_id = self._parse_tag_object_id(tag_id)
+        if tag_object_id is None:
+            return False
+
         db = await self._get_db()
         await self.ensure_indexes()
         normalized_user_id = self._normalize_user_id(user_id)
-        tag_doc = await db.user_tags.find_one({"_id": ObjectId(tag_id), "user_id": normalized_user_id})
+
+        tag_doc = await db.user_tags.find_one({"_id": tag_object_id, "user_id": normalized_user_id})
         if not tag_doc:
             return False
 
         tag_name = (tag_doc.get("name") or "").strip()
-        result = await db.user_tags.delete_one({"_id": ObjectId(tag_id), "user_id": normalized_user_id})
+        result = await db.user_tags.delete_one({"_id": tag_object_id, "user_id": normalized_user_id})
         if result.deleted_count <= 0:
             return False
 
@@ -216,9 +234,9 @@ class TagsService:
                         {"_id": normalized_user_id},
                         {"$pull": {"favorite_stocks.$[].tags": tag_name}}
                     )
-            except Exception:
+            except Exception as exc:
                 # 某些部署下用户数据不在 users 集合，忽略即可
-                pass
+                logger.debug("同步 users 集合标签删除失败 user_id=%s: %s", normalized_user_id, exc)
 
         return True
 

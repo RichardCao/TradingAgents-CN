@@ -4,8 +4,8 @@
 
 import logging
 
-from typing import List, Optional, Dict, Any, Tuple
 from datetime import datetime
+from typing import List, Optional, Dict, Any, Tuple
 from bson import ObjectId
 
 from app.core.database import get_mongo_db
@@ -50,6 +50,20 @@ def _build_quote_lookup_keys(code: str, market: Optional[str] = None) -> List[st
     return keys
 
 
+def _build_batch_quote_lookup_keys(items: List[Dict[str, Any]]) -> List[str]:
+    """为批量行情查询构造兼容 key，避免港股因前导零差异漏查。"""
+    lookup_keys: List[str] = []
+
+    for item in items or []:
+        stock_code = item.get("stock_code")
+        market = item.get("market")
+        for key in _build_quote_lookup_keys(stock_code, market):
+            if key not in lookup_keys:
+                lookup_keys.append(key)
+
+    return lookup_keys
+
+
 def _extract_valid_price(doc: Optional[Dict[str, Any]]) -> Optional[float]:
     """从行情文档中提取有效价格。"""
     if not doc:
@@ -78,6 +92,39 @@ def _extract_change_percent(doc: Optional[Dict[str, Any]]) -> Optional[float]:
         except Exception:
             continue
     return None
+
+
+def _extract_timestamp(doc: Optional[Dict[str, Any]], *keys: str) -> Optional[str]:
+    """从文档中提取时间字段，并统一转成字符串。"""
+    if not doc:
+        return None
+
+    for key in keys:
+        value = doc.get(key)
+        if value in (None, ""):
+            continue
+        if isinstance(value, datetime):
+            return value.isoformat()
+        return str(value)
+    return None
+
+
+def _extract_date_part(value: Optional[str]) -> Optional[str]:
+    """提取 YYYY-MM-DD 日期部分。"""
+    if not value:
+        return None
+
+    text = str(value).strip()
+    if not text:
+        return None
+
+    if "T" in text:
+        return text.split("T", 1)[0]
+    if " " in text:
+        return text.split(" ", 1)[0]
+    if "/" in text:
+        return text.replace("/", "-")
+    return text
 
 
 def _quote_rank(doc: Optional[Dict[str, Any]]) -> Tuple[int, int, int, str]:
@@ -211,15 +258,11 @@ class FavoritesService:
         """格式化收藏条目（仅基础信息，不包含实时行情）。
         行情将在 get_user_favorites 中批量富集。
         """
-        added_at = favorite.get("added_at")
-        if isinstance(added_at, datetime):
-            added_at = added_at.isoformat()
         return {
             "stock_code": favorite.get("stock_code"),
             "stock_name": favorite.get("stock_name"),
             "market": favorite.get("market", "A股"),
             "currency": _infer_currency(favorite.get("market", "A股")),
-            "added_at": added_at,
             "tags": _normalize_tags(favorite.get("tags", [])),
             "notes": favorite.get("notes", ""),
             "alert_price_high": favorite.get("alert_price_high"),
@@ -228,6 +271,8 @@ class FavoritesService:
             "current_price": None,
             "change_percent": None,
             "volume": None,
+            "quote_trade_date": None,
+            "quote_updated_at": None,
             "price_display_mode": None,
             "price_display_hint": None,
             "change_display_mode": None,
@@ -305,8 +350,9 @@ class FavoritesService:
         if codes:
             try:
                 coll = db["market_quotes"]
+                quote_lookup_keys = _build_batch_quote_lookup_keys(items)
                 cursor = coll.find(
-                    {"code": {"$in": codes}},
+                    {"code": {"$in": quote_lookup_keys}},
                     {
                         "code": 1,
                         "close": 1,
@@ -317,6 +363,7 @@ class FavoritesService:
                         "amount": 1,
                         "updated_at": 1,
                         "trade_date": 1,
+                        "last_sync": 1,
                         "data_source": 1,
                     },
                 )
@@ -338,13 +385,20 @@ class FavoritesService:
                     if q and valid_price is not None:
                         it["current_price"] = valid_price
                         it["change_percent"] = _extract_change_percent(q)
+                        it["quote_trade_date"] = q.get("trade_date")
+                        it["quote_updated_at"] = _extract_timestamp(q, "updated_at", "last_sync")
                 # 兜底：对未命中的代码使用在线源补齐（可选）
                 missing = []
                 missing_hk = []
                 for it in items:
                     code = it.get("stock_code")
                     market = it.get("market")
-                    needs_quote_fill = it.get("current_price") is None or it.get("change_percent") is None
+                    needs_quote_fill = (
+                        it.get("current_price") is None
+                        or it.get("change_percent") is None
+                        or not it.get("quote_trade_date")
+                        or not it.get("quote_updated_at")
+                    )
                     if not needs_quote_fill:
                         continue
                     if market == "港股":
@@ -359,14 +413,26 @@ class FavoritesService:
                             code = it.get("stock_code")
                             if it.get("market") == "港股":
                                 continue
-                            if it.get("current_price") is None or it.get("change_percent") is None:
-                                q2 = quotes_online.get(code, {}) if quotes_online else {}
-                                price = _extract_valid_price(q2)
-                                change = _extract_change_percent(q2)
-                                if it.get("current_price") is None and price is not None:
-                                    it["current_price"] = price
-                                if it.get("change_percent") is None and change is not None:
-                                    it["change_percent"] = change
+                            needs_online_fill = (
+                                it.get("current_price") is None
+                                or it.get("change_percent") is None
+                                or not it.get("quote_trade_date")
+                                or not it.get("quote_updated_at")
+                            )
+                            if not needs_online_fill:
+                                continue
+
+                            q2 = quotes_online.get(code, {}) if quotes_online else {}
+                            price = _extract_valid_price(q2)
+                            change = _extract_change_percent(q2)
+                            if it.get("current_price") is None and price is not None:
+                                it["current_price"] = price
+                            if it.get("change_percent") is None and change is not None:
+                                it["change_percent"] = change
+                            if not it.get("quote_trade_date"):
+                                it["quote_trade_date"] = q2.get("trade_date")
+                            if not it.get("quote_updated_at"):
+                                it["quote_updated_at"] = q2.get("updated_at")
                     except Exception:
                         pass
                 if missing_hk:
@@ -379,7 +445,12 @@ class FavoritesService:
                             market = it.get("market")
                             if market != "港股":
                                 continue
-                            if it.get("current_price") is not None and it.get("change_percent") is not None:
+                            if (
+                                it.get("current_price") is not None
+                                and it.get("change_percent") is not None
+                                and it.get("quote_trade_date")
+                                and it.get("quote_updated_at")
+                            ):
                                 continue
 
                             try:
@@ -390,6 +461,10 @@ class FavoritesService:
                                     it["current_price"] = price
                                 if it.get("change_percent") is None and change is not None:
                                     it["change_percent"] = change
+                                if not it.get("quote_trade_date"):
+                                    it["quote_trade_date"] = quote.get("trade_date")
+                                if not it.get("quote_updated_at"):
+                                    it["quote_updated_at"] = quote.get("updated_at")
                             except Exception:
                                 pass
 
@@ -419,6 +494,8 @@ class FavoritesService:
 
                                 if it.get("current_price") is None and fallback_quote.get("current_price") is not None:
                                     it["current_price"] = fallback_quote["current_price"]
+                                    if not it.get("quote_trade_date"):
+                                        it["quote_trade_date"] = fallback_quote.get("trade_date")
                                     it["price_display_mode"] = "historical_close_fallback"
                                     it["price_display_hint"] = (
                                         f"未获取到最新实时行情，当前展示为 {fallback_trade_date} 的最近收盘价"
@@ -426,9 +503,11 @@ class FavoritesService:
 
                                 if it.get("change_percent") is None and fallback_quote.get("change_percent") is not None:
                                     it["change_percent"] = fallback_quote["change_percent"]
+                                    if not it.get("quote_trade_date"):
+                                        it["quote_trade_date"] = fallback_quote.get("trade_date")
                                     it["change_display_mode"] = "historical_close_fallback"
                                     it["change_display_hint"] = (
-                                        f"未获取到最新实时行情，当前涨跌幅按 {fallback_trade_date} 最近两根日K估算"
+                                        f"当前涨跌幅按 {fallback_trade_date} 最近两根日K估算，可能与最新价格口径不同"
                                     )
 
                                 if it.get("price_display_mode") or it.get("change_display_mode"):
@@ -442,6 +521,37 @@ class FavoritesService:
                                 continue
                     except Exception:
                         pass
+
+                for it in items:
+                    quote_trade_date = _extract_date_part(it.get("quote_trade_date"))
+                    quote_updated_at = _extract_timestamp(
+                        {"value": it.get("quote_updated_at")},
+                        "value",
+                    )
+                    updated_date = _extract_date_part(quote_updated_at)
+
+                    if quote_trade_date:
+                        it["quote_trade_date"] = quote_trade_date
+                    if quote_updated_at:
+                        it["quote_updated_at"] = quote_updated_at
+
+                    if quote_trade_date and updated_date and quote_trade_date != updated_date:
+                        base_hint = f"当前展示数据对应交易日 {quote_trade_date}"
+                        if it.get("current_price") is not None and not it.get("price_display_hint"):
+                            it["price_display_hint"] = base_hint
+                        if (
+                            it.get("change_percent") is not None
+                            and not it.get("change_display_hint")
+                            and not it.get("change_display_mode")
+                        ):
+                            it["change_display_hint"] = base_hint
+
+                    if not quote_trade_date and quote_updated_at:
+                        base_hint = "当前仅能确认最近一次抓取时间，暂无明确交易日信息"
+                        if it.get("current_price") is not None and not it.get("price_display_hint"):
+                            it["price_display_hint"] = base_hint
+                        if it.get("change_percent") is not None and not it.get("change_display_hint"):
+                            it["change_display_hint"] = base_hint
             except Exception:
                 # 查询失败时保持占位 None，避免影响基础功能
                 pass
@@ -473,7 +583,6 @@ class FavoritesService:
                 "stock_code": stock_code,
                 "stock_name": stock_name,
                 "market": market,
-                "added_at": datetime.utcnow(),
                 "tags": _normalize_tags(tags),
                 "notes": notes,
                 "alert_price_high": alert_price_high,

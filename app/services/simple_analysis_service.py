@@ -1615,9 +1615,6 @@ class SimpleAnalysisService:
 
                             # 🔥 同时更新内存和 MongoDB
                             try:
-                                import asyncio
-                                from datetime import datetime
-
                                 # 尝试获取当前运行的事件循环
                                 try:
                                     loop = asyncio.get_running_loop()

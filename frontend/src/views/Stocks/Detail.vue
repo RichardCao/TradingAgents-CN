@@ -185,7 +185,7 @@
               <!-- 报告列表预览 -->
               <div class="reports-preview">
                 <el-tag
-                  v-for="(content, key) in lastAnalysis.reports"
+                  v-for="(_content, key) in lastAnalysis.reports"
                   :key="key"
                   size="small"
                   effect="plain"
@@ -381,7 +381,6 @@ import { CanvasRenderer } from 'echarts/renderers'
 import VChart from 'vue-echarts'
 import type { EChartsOption } from 'echarts'
 import { favoritesApi } from '@/api/favorites'
-import { useNotificationStore } from '@/stores/notifications'
 
 
 echartsUse([CandlestickChart, GridComponent, TooltipComponent, DataZoomComponent, LegendComponent, TitleComponent, CanvasRenderer])
@@ -394,23 +393,12 @@ const router = useRouter()
 const analysisStatus = ref<'idle' | 'running' | 'completed' | 'failed'>('idle')
 const analysisProgress = ref(0)
 const analysisMessage = ref('')
-const currentTaskId = ref<string | null>(null)
 const lastAnalysis = ref<any | null>(null)
 const lastTaskInfo = ref<any | null>(null) // 保存任务信息（包含 end_time 等）
 
 // 报告对话框
 const showReportsDialog = ref(false)
 const activeReportTab = ref('')
-
-const notifStore = useNotificationStore()
-
-const lastAnalysisTagType = computed(() => {
-  const reco = String(lastAnalysis.value?.recommendation || '').toLowerCase()
-  if (reco.includes('买') || reco.includes('buy') || reco.includes('增持') || reco.includes('强')) return 'success'
-  if (reco.includes('卖') || reco.includes('sell')) return 'danger'
-  if (reco.includes('减持') || reco.includes('谨慎')) return 'warning'
-  return 'info'
-})
 
 // 股票代码（从路由参数获取）
 const code = computed(() => {
@@ -945,11 +933,6 @@ function goPaperTrading() {
   router.push({ name: 'PaperTradingHome', query: { code: code.value } })
 }
 
-function scrollToDetail() {
-  const el = document.getElementById('analysis-detail')
-  if (el) el.scrollIntoView({ behavior: 'smooth' })
-}
-
 // 获取最新的历史分析报告
 async function fetchLatestAnalysis() {
   try {
@@ -1132,7 +1115,8 @@ function formatNewsTime(dateStr: string | null | undefined): string {
 }
 
 // 格式化报告名称
-function formatReportName(key: string): string {
+function formatReportName(key: string | number): string {
+  const reportKey = String(key)
   // 完整的13个报告映射
   const nameMap: Record<string, string> = {
     // 分析师团队 (4个)
@@ -1163,7 +1147,7 @@ function formatReportName(key: string): string {
     'investment_debate_state': '🔬 研究团队决策（旧）',
     'risk_debate_state': '⚖️ 风险管理团队（旧）'
   }
-  return nameMap[key] || key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())
+  return nameMap[reportKey] || reportKey.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())
 }
 
 function normalizeDisplayReportContent(content: string): string {
@@ -1207,10 +1191,10 @@ function normalizeDisplayReportContent(content: string): string {
 }
 
 // 渲染Markdown
-function renderMarkdown(content: string): string {
+function renderMarkdown(content: string | number): string {
   if (!content) return '<p>暂无内容</p>'
   try {
-    return String(marked.parse(normalizeDisplayReportContent(content), { async: false }))
+    return String(marked.parse(normalizeDisplayReportContent(String(content)), { async: false }))
   } catch (e) {
     console.error('Markdown渲染失败:', e)
     return `<pre>${content}</pre>`
@@ -1218,9 +1202,9 @@ function renderMarkdown(content: string): string {
 }
 
 // 打开指定报告
-function openReport(reportKey: string) {
+function openReport(reportKey: string | number) {
   showReportsDialog.value = true
-  activeReportTab.value = reportKey
+  activeReportTab.value = String(reportKey)
 }
 
 // 导出报告
