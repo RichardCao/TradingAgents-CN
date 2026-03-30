@@ -1,4 +1,4 @@
-from typing import Annotated, Dict
+from typing import Annotated, Dict, List
 import time
 import os
 from datetime import datetime
@@ -733,10 +733,29 @@ def get_stock_stats_indicators_window(
         ),
     }
 
-    if indicator not in best_ind_params:
+    indicator_names = _normalize_indicator_names(indicator)
+    unsupported_indicators = [
+        name for name in indicator_names if name not in best_ind_params
+    ]
+    if unsupported_indicators:
         raise ValueError(
-            f"Indicator {indicator} is not supported. Please choose from: {list(best_ind_params.keys())}"
+            "Unsupported indicators: "
+            f"{unsupported_indicators}. Please choose from: {list(best_ind_params.keys())}"
         )
+
+    if len(indicator_names) > 1:
+        return "\n\n".join(
+            get_stock_stats_indicators_window(
+                symbol=symbol,
+                indicator=name,
+                curr_date=curr_date,
+                look_back_days=look_back_days,
+                online=online,
+            )
+            for name in indicator_names
+        )
+
+    indicator = indicator_names[0]
 
     end_date = curr_date
     curr_date = datetime.strptime(curr_date, "%Y-%m-%d")
@@ -786,6 +805,24 @@ def get_stock_stats_indicators_window(
     return result_str
 
 
+def _normalize_indicator_names(indicator: str) -> List[str]:
+    normalized: List[str] = []
+    seen = set()
+
+    for raw_name in indicator.split(","):
+        name = raw_name.strip()
+        if not name:
+            continue
+        if name not in seen:
+            seen.add(name)
+            normalized.append(name)
+
+    if not normalized:
+        raise ValueError("Indicator must not be empty.")
+
+    return normalized
+
+
 def get_stockstats_indicator(
     symbol: Annotated[str, "ticker symbol of the company"],
     indicator: Annotated[str, "technical indicator to get the analysis and report of"],
@@ -826,7 +863,7 @@ def get_YFin_data_window(
     start_date = before.strftime("%Y-%m-%d")
 
     # read in data
-    data = pd.read_csv(
+    data = load_price_csv(
         os.path.join(
             DATA_DIR,
             f"market_data/price_data/{symbol}-YFin-data-2015-01-01-2025-03-25.csv",
@@ -834,7 +871,8 @@ def get_YFin_data_window(
     )
 
     # Extract just the date part for comparison
-    data["DateOnly"] = data["Date"].str[:10]
+    data["DateOnly"] = data["Date"].dt.strftime("%Y-%m-%d")
+    data["Date"] = data["DateOnly"]
 
     # Filter data between the start and end dates (inclusive)
     filtered_data = data[
@@ -907,7 +945,7 @@ def get_YFin_data(
     end_date: Annotated[str, "End date in yyyy-mm-dd format"],
 ) -> str:
     # read in data
-    data = pd.read_csv(
+    data = load_price_csv(
         os.path.join(
             DATA_DIR,
             f"market_data/price_data/{symbol}-YFin-data-2015-01-01-2025-03-25.csv",
@@ -920,7 +958,8 @@ def get_YFin_data(
         )
 
     # Extract just the date part for comparison
-    data["DateOnly"] = data["Date"].str[:10]
+    data["DateOnly"] = data["Date"].dt.strftime("%Y-%m-%d")
+    data["Date"] = data["DateOnly"]
 
     # Filter data between the start and end dates (inclusive)
     filtered_data = data[

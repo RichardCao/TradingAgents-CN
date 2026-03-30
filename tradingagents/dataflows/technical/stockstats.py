@@ -5,9 +5,44 @@ from typing import Annotated
 import os
 from tradingagents.config.config_manager import config_manager
 
+
+PRICE_NUMERIC_COLUMNS = ("Open", "High", "Low", "Close", "Adj Close", "Volume")
+
 def get_config():
     """兼容性包装函数"""
     return config_manager.load_settings()
+
+
+def load_price_csv(path: str) -> pd.DataFrame:
+    """Load cached price CSVs defensively to tolerate bad rows and NaN-like values."""
+    try:
+        data = pd.read_csv(
+            path,
+            on_bad_lines="skip",
+            encoding_errors="ignore",
+            low_memory=False,
+        )
+    except TypeError:
+        data = pd.read_csv(path, on_bad_lines="skip", low_memory=False)
+
+    if data.empty:
+        raise ValueError(f"Price CSV is empty: {path}")
+
+    if "Date" not in data.columns:
+        raise ValueError(f"Price CSV missing required 'Date' column: {path}")
+
+    data = data.copy()
+    data["Date"] = pd.to_datetime(data["Date"], errors="coerce")
+    data = data.dropna(subset=["Date"]).sort_values("Date").reset_index(drop=True)
+
+    if data.empty:
+        raise ValueError(f"Price CSV does not contain any valid dated rows: {path}")
+
+    for column in PRICE_NUMERIC_COLUMNS:
+        if column in data.columns:
+            data[column] = pd.to_numeric(data[column], errors="coerce")
+
+    return data
 
 
 class StockstatsUtils:
@@ -34,7 +69,7 @@ class StockstatsUtils:
 
         if not online:
             try:
-                data = pd.read_csv(
+                data = load_price_csv(
                     os.path.join(
                         data_dir,
                         f"{symbol}-YFin-data-2015-01-01-2025-03-25.csv",
@@ -63,8 +98,7 @@ class StockstatsUtils:
             )
 
             if os.path.exists(data_file):
-                data = pd.read_csv(data_file)
-                data["Date"] = pd.to_datetime(data["Date"])
+                data = load_price_csv(data_file)
             else:
                 data = yf.download(
                     symbol,
@@ -86,6 +120,8 @@ class StockstatsUtils:
 
         if not matching_rows.empty:
             indicator_value = matching_rows[indicator].values[0]
+            if pd.isna(indicator_value):
+                return "N/A: Indicator unavailable due to insufficient or malformed data"
             return indicator_value
         else:
             return "N/A: Not a trading day (weekend or holiday)"
