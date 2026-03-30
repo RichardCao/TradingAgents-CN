@@ -8,6 +8,59 @@
 - 优先选择“局部回补”，不做大规模跟随式同步
 - 不为了对齐上游而破坏现有前后端、MongoDB/Redis、配置管理与中文报告体系
 
+补充说明：
+
+- 本文档最初写于“开始回补之前”
+- 到 2026-03-29 为止，其中多项已在当前仓库落地，不应再按本文原始顺序重复执行
+- 实际推进前，应先看本仓库近期 `backfill:` 提交记录
+
+## 0. 当前现状与剩余 checklist
+
+### 0.1 已经完成的回补项
+
+根据当前仓库 commit 历史，以下上游能力已经落地：
+
+- `Responses API` 灰度接入
+- `yfinance` retry/backoff
+- `exchange-qualified tickers`
+- `Anthropic effort / thinking`
+- `initialize all debate state fields`
+- `comma-separated indicators`
+- `malformed CSV / NaN parsing hardening`
+- `http_client / SSL customization`
+
+另外，`debate round config to ConditionalLogic` 也已经由当前主链路覆盖：
+
+- `tradingagents/graph/trading_graph.py` 已将配置显式传入 `ConditionalLogic`
+- `tests/test_conditional_logic_config.py`
+- `tests/test_debate_flow_simulation.py`
+
+### 0.2 当前不要重复做的项
+
+如果继续回补，上面这些能力都不应再次作为新任务执行，除非只是补测试、补文档或做局部收口。
+
+### 0.3 当前剩余待执行的 shortlist
+
+截至 2026-03-30，这一轮稳定性回补已基本清空，当前不再建议把以下三项继续列为待办：
+
+- `comma-separated indicators`
+- `malformed CSV / NaN parsing hardening`
+- `http_client / SSL customization`
+
+当前如果还要继续做“上游回补”，更合理的是：
+
+1. 保持这批已回补能力的回归测试和真实任务验证
+2. 只在确有收益时，再评估 `UTF-8` 进程级默认值之类的低优先级对齐项
+3. 更高风险的行为层改动仍然维持“先方案、暂不直接落代码”
+
+### 0.4 建议执行顺序
+
+建议下一步不再按“继续补 bugfix”的思路推进，而是按下面顺序：
+
+1. 回归验证和文档收口
+2. 观察真实分析任务与多模型调用链路
+3. 再决定是否评估更高层的上游能力回补
+
 ## 1. 总体策略
 
 建议采用“三段式回补”：

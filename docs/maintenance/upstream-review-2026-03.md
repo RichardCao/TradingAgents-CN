@@ -185,8 +185,8 @@
 
 当前状态：
 
-- **仍值得继续评估**
-- 这部分当前仓库没有明确做过等价回补
+- **已做局部回补**
+- 价格 CSV 读取链路已增加坏行跳过、日期清洗、数值强制转换与 NaN 兜底
 
 6. `comma-separated indicators` / `debate round config` / `initialize all debate state fields`
 
@@ -200,9 +200,12 @@
 - `initialize all debate state fields`
   - **已回补**
 - `comma-separated indicators`
-  - **仍是候选**
+  - **已做局部回补**
+  - 技术指标窗口工具已支持逗号分隔输入并保持单指标兼容
 - `debate round config`
-  - **仍是候选**
+  - **当前仓库已覆盖**
+  - `tradingagents/graph/trading_graph.py` 已将配置传入 `ConditionalLogic`
+  - `tests/test_conditional_logic_config.py`、`tests/test_debate_flow_simulation.py` 已覆盖这一行为
 
 #### 第三优先级：需要谨慎，不建议直接照搬
 
@@ -242,17 +245,17 @@
 - `yfinance` 统一 retry/backoff helper
 - `initialize all debate state fields`
 
-当前仍未对齐、且后续可以继续评估的点主要是：
+当前仍未完全对齐、且后续可以继续评估的点主要是：
 
-- `malformed CSV / NaN parsing hardening`
-- `comma-separated indicators in get_indicators`
-- `debate round config to ConditionalLogic`
-- `http_client support for SSL certificate customization`
 - `set process-level UTF-8 default for cross-platform consistency`
 
 相对而言，以下方向中文仓库已有部分覆盖或替代实现，暂不需要专门追：
 
 - UTF-8 编码处理：仓库中已大量显式使用 `encoding='utf-8'`
+- `ConditionalLogic` 配置传递：当前主链路和测试已覆盖
+- 价格 CSV / NaN 解析硬化：当前价格缓存与技术指标主链路已覆盖
+- 技术指标逗号分隔输入：当前工具入口已覆盖
+- OpenAI 兼容 `http_client / SSL`：当前 `ChatOpenAI`、OpenAI 兼容适配器与 Responses API 灰度链路已覆盖
 - 多 Provider 配置：中文仓库已自行实现更重的配置管理与前端 UI
 - 安装脚本与依赖整理：中文仓库有自己的本地部署脚本体系
 - 报告落库的 list 内容稳定化：当前仓库也已做等价修复
@@ -261,20 +264,41 @@
 
 如果后续要继续对齐上游，我建议按以下顺序：
 
-1. 先补剩余的低风险稳定性修复
-   - `malformed CSV / NaN`
-   - `comma-separated indicators`
-   - `debate round config`
-   - `http_client / SSL customization`
+1. 先明确“不要重复做”的已回补项
+   - `Responses API`
+   - `yfinance` retry/backoff
+   - `exchange-qualified tickers`
+   - `Anthropic effort / thinking`
+   - `initialize all debate state fields`
+   - `debate round config to ConditionalLogic`
 
-2. 保持当前已回补能力的验证和收口
+2. 再补剩余的低风险稳定性修复
+   - `UTF-8` 只在需要进一步完全对齐上游时再补，不列为当前优先项
+
+3. 保持当前已回补能力的验证和收口
    - Responses API 灰度链路
    - yfinance retry/backoff
    - ticker 身份标准化
    - Anthropic effort 支持
+   - 价格 CSV / NaN 解析硬化
+   - 技术指标逗号分隔输入
+   - OpenAI 兼容 `http_client / SSL`
 
-3. 最后再评估五档评级体系与 portfolio manager 重写
+4. 最后再评估五档评级体系与 portfolio manager 重写
    - 这是行为层变更，不是简单 bugfix
+
+### 6.1 当前可执行 shortlist
+
+截至 2026-03-30，这一轮原本剩余的三项稳定性回补已经完成：
+
+1. `comma-separated indicators`
+2. `malformed CSV / NaN parsing hardening`
+3. `http_client / SSL customization`
+
+当前如果还要继续往上游对齐，优先级已经明显下降，主要只剩：
+
+1. `UTF-8` 进程级默认值的进一步统一
+2. 已回补项的回归覆盖和真实任务观察
 
 ## 7. 当前判断
 
@@ -289,3 +313,4 @@
 - 其中最高价值、最低冲突的一批能力，当前仓库已经完成了局部回补
 - 中文仓库并不是简单落后，而是**在完全不同的产品方向上走得更远**
 - 因此后续同步不应追求“全量跟上游”，而应采用“按价值点回补”的策略
+- 当前最合理的继续方式，不是大规模跟上游，而是保持“按价值点回补”的策略，并把重点转到验证和后续高价值候选评估

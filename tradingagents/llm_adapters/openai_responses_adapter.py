@@ -11,6 +11,7 @@ from langchain_core.messages import AIMessage
 from openai import OpenAI
 
 from tradingagents.config.runtime_settings import get_bool
+from tradingagents.llm_adapters.http_client_utils import build_openai_sdk_client_kwargs
 from tradingagents.utils.logging_init import get_logger
 
 logger = get_logger("default")
@@ -156,7 +157,11 @@ def invoke_responses_text(llm: Any, prompt: str, stage_name: str) -> AIMessage:
     max_tokens = getattr(llm, "max_tokens", None)
     timeout = _resolve_timeout(llm)
 
-    client = OpenAI(api_key=api_key, base_url=base_url)
+    client = OpenAI(
+        api_key=api_key,
+        base_url=base_url,
+        **build_openai_sdk_client_kwargs(),
+    )
     request_kwargs = {
         "model": model_name,
         "input": prompt,
@@ -201,4 +206,3 @@ def invoke_responses_text(llm: Any, prompt: str, stage_name: str) -> AIMessage:
             f"(base_url={base_url}, model={model_name}, 耗时={elapsed:.2f}秒)"
         )
         raise
-

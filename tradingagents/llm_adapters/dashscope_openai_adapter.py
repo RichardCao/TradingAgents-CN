@@ -10,6 +10,7 @@ from langchain_openai import ChatOpenAI
 from langchain_core.tools import BaseTool
 from pydantic import Field, SecretStr
 from ..config.config_manager import token_tracker
+from .http_client_utils import build_langchain_http_client_kwargs
 
 # 导入日志模块
 from tradingagents.utils.logging_manager import get_logger
@@ -75,6 +76,7 @@ class ChatDashScopeOpenAI(ChatOpenAI):
         kwargs.setdefault("model", "qwen-turbo")
         kwargs.setdefault("temperature", 0.1)
         kwargs.setdefault("max_tokens", 2000)
+        kwargs.update(build_langchain_http_client_kwargs(kwargs))
 
         # 检查 API 密钥和 base_url
         final_api_key = kwargs.get("api_key")

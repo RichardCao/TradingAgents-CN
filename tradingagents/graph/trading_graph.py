@@ -11,6 +11,7 @@ from langchain_openai import ChatOpenAI
 from langchain_anthropic import ChatAnthropic
 from langchain_google_genai import ChatGoogleGenerativeAI
 from tradingagents.llm_adapters import ChatDashScopeOpenAI, ChatGoogleOpenAI
+from tradingagents.llm_adapters.http_client_utils import build_langchain_http_client_kwargs
 
 from langgraph.prebuilt import ToolNode
 
@@ -69,6 +70,12 @@ def _build_anthropic_reasoning_kwargs(model_config: Optional[Dict[str, Any]]) ->
         kwargs["thinking"] = thinking_payload
 
     return kwargs
+
+
+def _create_chat_openai(**kwargs: Any) -> ChatOpenAI:
+    openai_kwargs = dict(kwargs)
+    openai_kwargs.update(build_langchain_http_client_kwargs(openai_kwargs))
+    return ChatOpenAI(**openai_kwargs)
 
 
 def create_llm_by_provider(
@@ -177,7 +184,7 @@ def create_llm_by_provider(
             elif provider.lower() == "openai":
                 api_key = os.getenv('OPENAI_API_KEY')
 
-        return ChatOpenAI(
+        return _create_chat_openai(
             model=model,
             base_url=backend_url,
             api_key=api_key,
@@ -230,7 +237,7 @@ def create_llm_by_provider(
         if not custom_api_key:
             logger.warning(f"⚠️ 未找到自定义厂家 {provider} 的 API Key，尝试使用默认配置")
 
-        return ChatOpenAI(
+        return _create_chat_openai(
             model=model,
             base_url=backend_url,
             api_key=custom_api_key,
@@ -329,7 +336,7 @@ class TradingAgentsGraph:
             logger.info(f"🔧 [OpenAI-快速模型] max_tokens={quick_max_tokens}, temperature={quick_temperature}, timeout={quick_timeout}s, retries={quick_retries}")
             logger.info(f"🔧 [OpenAI-深度模型] max_tokens={deep_max_tokens}, temperature={deep_temperature}, timeout={deep_timeout}s, retries={deep_retries}")
 
-            self.deep_thinking_llm = ChatOpenAI(
+            self.deep_thinking_llm = _create_chat_openai(
                 model=self.config["deep_think_llm"],
                 base_url=self.config["backend_url"],
                 temperature=deep_temperature,
@@ -337,7 +344,7 @@ class TradingAgentsGraph:
                 timeout=deep_timeout,
                 max_retries=deep_retries,
             )
-            self.quick_thinking_llm = ChatOpenAI(
+            self.quick_thinking_llm = _create_chat_openai(
                 model=self.config["quick_think_llm"],
                 base_url=self.config["backend_url"],
                 temperature=quick_temperature,
@@ -355,7 +362,7 @@ class TradingAgentsGraph:
             logger.info(f"🔧 [SiliconFlow-快速模型] max_tokens={quick_max_tokens}, temperature={quick_temperature}, timeout={quick_timeout}s")
             logger.info(f"🔧 [SiliconFlow-深度模型] max_tokens={deep_max_tokens}, temperature={deep_temperature}, timeout={deep_timeout}s")
 
-            self.deep_thinking_llm = ChatOpenAI(
+            self.deep_thinking_llm = _create_chat_openai(
                 model=self.config["deep_think_llm"],
                 base_url=self.config["backend_url"],
                 api_key=siliconflow_api_key,
@@ -363,7 +370,7 @@ class TradingAgentsGraph:
                 max_tokens=deep_max_tokens,
                 timeout=deep_timeout
             )
-            self.quick_thinking_llm = ChatOpenAI(
+            self.quick_thinking_llm = _create_chat_openai(
                 model=self.config["quick_think_llm"],
                 base_url=self.config["backend_url"],
                 api_key=siliconflow_api_key,
@@ -381,7 +388,7 @@ class TradingAgentsGraph:
             logger.info(f"🔧 [OpenRouter-快速模型] max_tokens={quick_max_tokens}, temperature={quick_temperature}, timeout={quick_timeout}s")
             logger.info(f"🔧 [OpenRouter-深度模型] max_tokens={deep_max_tokens}, temperature={deep_temperature}, timeout={deep_timeout}s")
 
-            self.deep_thinking_llm = ChatOpenAI(
+            self.deep_thinking_llm = _create_chat_openai(
                 model=self.config["deep_think_llm"],
                 base_url=self.config["backend_url"],
                 api_key=openrouter_api_key,
@@ -389,7 +396,7 @@ class TradingAgentsGraph:
                 max_tokens=deep_max_tokens,
                 timeout=deep_timeout
             )
-            self.quick_thinking_llm = ChatOpenAI(
+            self.quick_thinking_llm = _create_chat_openai(
                 model=self.config["quick_think_llm"],
                 base_url=self.config["backend_url"],
                 api_key=openrouter_api_key,
@@ -401,14 +408,14 @@ class TradingAgentsGraph:
             logger.info(f"🔧 [Ollama-快速模型] max_tokens={quick_max_tokens}, temperature={quick_temperature}, timeout={quick_timeout}s")
             logger.info(f"🔧 [Ollama-深度模型] max_tokens={deep_max_tokens}, temperature={deep_temperature}, timeout={deep_timeout}s")
 
-            self.deep_thinking_llm = ChatOpenAI(
+            self.deep_thinking_llm = _create_chat_openai(
                 model=self.config["deep_think_llm"],
                 base_url=self.config["backend_url"],
                 temperature=deep_temperature,
                 max_tokens=deep_max_tokens,
                 timeout=deep_timeout
             )
-            self.quick_thinking_llm = ChatOpenAI(
+            self.quick_thinking_llm = _create_chat_openai(
                 model=self.config["quick_think_llm"],
                 base_url=self.config["backend_url"],
                 temperature=quick_temperature,

@@ -23,6 +23,20 @@
 - 补充公开部署脚本、提交检查清单与回归测试，便于后续公开提交与部署
 - 清理公开示例中的默认口令/长得像真实密钥的样例，降低公开提交时的误判风险
 
+## 本轮回补提交建议
+
+如果单独整理“上游低风险回补”这一轮，建议拆成两条 commit：
+
+1. `backfill: support multi-indicator parsing and harden price csv handling`
+   - 技术指标窗口工具支持逗号分隔输入
+   - 价格 CSV 读取链路增加坏行跳过、日期清洗、数值转换和 NaN 兜底
+   - 补充对应单元测试与回归测试
+
+2. `backfill: add optional openai ssl client hooks and refresh upstream docs`
+   - 为 OpenAI 兼容、DashScope 兼容与 Responses API 灰度链路增加可选 SSL/http client 配置入口
+   - 保留显式传入的 `http_client`，避免被默认 helper 覆盖
+   - 更新上游回补调研/计划文档与 `CHANGELOG`
+
 ## 建议 PR 标题
 
 推荐标题：

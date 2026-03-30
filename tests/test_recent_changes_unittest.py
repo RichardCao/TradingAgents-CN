@@ -491,16 +491,16 @@ class TestRecentChanges(unittest.TestCase):
             def info(self):
                 raise Exception("No timezone found, symbol may be delisted")
 
+        ticker_factory = MagicMock(return_value=InvalidTicker())
+
         with patch(
             "tradingagents.dataflows.providers.common.yfinance_client.yf.Ticker",
-            return_value=InvalidTicker(),
-        ), patch(
-            "tradingagents.dataflows.providers.common.yfinance_client.time.sleep"
-        ) as mock_sleep:
+            ticker_factory,
+        ):
             with self.assertRaises(Exception):
                 get_ticker_info("BAD", market="US", max_retries=3, base_delay=1.0)
 
-        mock_sleep.assert_not_called()
+        ticker_factory.assert_called_once_with("BAD")
 
     def test_parse_sina_cn_quote_line(self):
         line = (

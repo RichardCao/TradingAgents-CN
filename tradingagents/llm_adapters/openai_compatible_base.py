@@ -13,6 +13,7 @@ from langchain_core.callbacks import CallbackManagerForLLMRun
 
 # 导入统一日志系统
 from tradingagents.utils.logging_init import setup_llm_logging
+from tradingagents.llm_adapters.http_client_utils import build_langchain_http_client_kwargs
 
 # 导入日志模块
 from tradingagents.utils.logging_manager import get_logger, get_logger_manager
@@ -119,6 +120,7 @@ class OpenAICompatibleBase(ChatOpenAI):
             "max_tokens": max_tokens,
             **kwargs
         }
+        openai_kwargs.update(build_langchain_http_client_kwargs(openai_kwargs))
         
         # 根据LangChain版本使用不同的参数名
         try:

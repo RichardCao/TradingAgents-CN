@@ -47,6 +47,9 @@
 - `fix`: 修正报告下载/导出中直接展示研究深度原始数字的问题，研究深度现按用户语言偏好显示为友好文案。
 - `backfill`: 为长文本阶段新增 OpenAI Responses API 灰度接入层，当前仅对白名单阶段 `Research Manager` 且满足 OpenAI 路径条件时启用，失败自动回退到现有 LangChain 路径。
 - `backfill`: 为 Anthropic 模型配置补充 `effort / thinking_budget_tokens / thinking_type` 后端支持，并接入普通模式与 mixed mode 的 LLM 创建链路。
+- `backfill`: 为技术指标窗口工具补充逗号分隔输入兼容，允许在同一次调用中请求多个指标，同时保持单指标输出格式兼容。
+- `backfill`: 为价格 CSV / 技术指标链路补充坏行跳过、日期清洗、数值强制转换与 NaN 兜底，降低脏缓存数据对指标计算的影响。
+- `backfill`: 为 OpenAI 兼容、DashScope 兼容与 Responses API 灰度链路补充可选 SSL/http client 配置入口，默认行为保持不变。
 - 优化单股同步数据源选择逻辑：
   - 仅同步实时行情时仅允许 `AKShare`
   - 不含实时行情时允许 `Tushare / AKShare`
@@ -98,6 +101,9 @@
   - `ticker_qualified` 标准化字段与图初始状态透传
   - OpenAI Responses API 灰度适配与阶段白名单控制
   - Anthropic `effort / thinking` 配置透传
+  - 技术指标逗号分隔输入兼容
+  - 价格 CSV / NaN 解析硬化
+  - OpenAI 兼容 SSL/http client 配置透传
   - 报告中文标题规范化
 - 默认后端标准套件已恢复为稳定可跑：
   - `471 passed, 2 skipped, 287 deselected`
