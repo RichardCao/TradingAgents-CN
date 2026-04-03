@@ -35,6 +35,7 @@ from app.services.memory_state_manager import get_memory_state_manager, TaskStat
 from app.services.redis_progress_tracker import RedisProgressTracker, get_progress_by_id
 from app.services.progress_log_handler import register_analysis_tracker, unregister_analysis_tracker
 from app.utils.report_language_utils import normalize_reports_dict
+from app.services.analysis_presync_service import run_analysis_pre_sync
 
 # 股票基础信息获取（用于补充显示名称）
 try:
@@ -1578,6 +1579,38 @@ class SimpleAnalysisService:
             logger.info(f"📅 分析目标日期: {analysis_date}")
             logger.info(f"📅 数据查询范围: {data_start_date} 至 {data_end_date} (最近10天)")
             logger.info(f"💡 说明: 获取10天数据可自动处理周末、节假日和数据延迟问题")
+
+            # 分析前显式预同步，统一把写库动作前置到分析开始前
+            if not request.parameters or request.parameters.auto_sync_before_analysis:
+                update_progress_sync(10, "📦 分析前同步所需数据", "data_preparation")
+                pre_sync_result = asyncio.run(
+                    run_analysis_pre_sync(
+                        current_user={"id": user_id},
+                        request=request,
+                    )
+                )
+                logger.info(f"📦 [分析前预同步] 结果: {pre_sync_result}")
+
+                blocking_step_messages = {
+                    "market_data": "市场数据同步失败",
+                    "news": "新闻数据同步失败",
+                    "social_media": "社媒数据未准备完成",
+                }
+                failed_steps = [
+                    step for step in pre_sync_result.get("steps", [])
+                    if step.get("type") in blocking_step_messages and not step.get("success")
+                ]
+                if failed_steps:
+                    failed_step = failed_steps[0]
+                    failed_type = str(failed_step.get("type") or "")
+                    raise RuntimeError(
+                        "分析前预同步失败："
+                        + str(
+                            failed_step.get("message")
+                            or blocking_step_messages.get(failed_type)
+                            or "所需数据同步失败"
+                        )
+                    )
 
             # 开始分析 - 进度10%，即将进入分析师阶段
             # 注意：不要手动设置过高的进度，让 graph_progress_callback 来更新实际的分析进度

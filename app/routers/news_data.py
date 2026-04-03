@@ -12,6 +12,7 @@ from app.routers.auth_db import get_current_user
 from app.core.response import ok
 from app.services.news_data_service import get_news_data_service, NewsQueryParams
 from app.worker.news_data_sync_service import get_news_data_sync_service
+from app.routers.stock_sync import save_sync_history_record
 
 router = APIRouter(prefix="/api/news-data", tags=["新闻数据"])
 logger = logging.getLogger("webapi")
@@ -50,7 +51,7 @@ async def query_stock_news(
     current_user: dict = Depends(get_current_user)
 ):
     """
-    查询股票新闻（智能获取：优先数据库，无数据时实时获取）
+    查询股票新闻（只读数据库，不在查询阶段触发同步）
 
     Args:
         symbol: 股票代码
@@ -78,49 +79,30 @@ async def query_stock_news(
             sort_order=-1
         )
 
-        # 1. 先从数据库查询
+        # 1. 只从数据库查询
         news_list = await service.query_news(params)
         data_source = "database"
-
-        # 2. 如果数据库没有数据，实时获取
-        if not news_list:
-            logger.info(f"📰 数据库无新闻数据，实时获取: {symbol}")
-            try:
-                from app.worker.akshare_sync_service import get_akshare_sync_service
-                sync_service = await get_akshare_sync_service()
-
-                # 实时获取新闻
-                news_data = await sync_service.provider.get_stock_news(
-                    symbol=symbol,
-                    limit=limit
-                )
-
-                if news_data:
-                    # 保存到数据库
-                    saved_count = await service.save_news_data(
-                        news_data=news_data,
-                        data_source="akshare",
-                        market="CN"
-                    )
-                    logger.info(f"✅ 实时获取并保存 {saved_count} 条新闻")
-
-                    # 重新查询
-                    news_list = await service.query_news(params)
-                    data_source = "realtime"
-                else:
-                    logger.warning(f"⚠️ 实时获取新闻失败: {symbol}")
-
-            except Exception as e:
-                logger.error(f"❌ 实时获取新闻异常: {e}")
+        sync_required = not news_list
+        sync_hint = (
+            "当前股票在所选时间范围内没有已同步新闻，请先执行新闻同步。"
+            if sync_required
+            else None
+        )
 
         return ok(data={
                 "symbol": symbol,
                 "hours_back": hours_back,
                 "total_count": len(news_list),
                 "news": news_list,
-                "data_source": data_source
+                "data_source": data_source,
+                "sync_required": sync_required,
+                "sync_hint": sync_hint,
             },
-            message=f"查询成功，返回 {len(news_list)} 条新闻（来源：{data_source}）"
+            message=(
+                f"查询成功，返回 {len(news_list)} 条新闻（来源：{data_source}）"
+                if not sync_required
+                else "查询成功，但当前时间范围内没有已同步新闻，请先执行新闻同步"
+            )
         )
 
     except Exception as e:
@@ -399,6 +381,7 @@ async def sync_single_stock_news(
         dict: 同步结果
     """
     try:
+        started_at = datetime.utcnow()
         sync_service = await get_news_data_sync_service()
         
         # 执行同步
@@ -408,7 +391,47 @@ async def sync_single_stock_news(
             hours_back=hours_back,
             max_news_per_source=max_news_per_source
         )
-        
+
+        finished_at = datetime.utcnow()
+        status = "success" if stats.successful_saves > 0 else "failed"
+        if stats.successful_saves > 0 and stats.failed_saves > 0:
+            status = "partial_success"
+
+        await save_sync_history_record(
+            current_user=current_user,
+            symbol=symbol,
+            sync_types=["news"],
+            data_source_requested="multi_source" if not data_sources else ",".join(data_sources),
+            data_sources_used=stats.sources_used,
+            status=status,
+            overall_success=stats.successful_saves > 0,
+            summary=(
+                f"新闻数据 {stats.successful_saves} 条成功"
+                + (f"，{stats.failed_saves} 条失败" if stats.failed_saves else "")
+                + (f"，跳过重复 {stats.duplicate_skipped} 条" if stats.duplicate_skipped else "")
+            ),
+            errors=[] if stats.successful_saves > 0 else ["新闻同步未获取到可保存数据"],
+            result={
+                "symbol": symbol,
+                "sync_stats": {
+                    "total_processed": stats.total_processed,
+                    "successful_saves": stats.successful_saves,
+                    "failed_saves": stats.failed_saves,
+                    "duplicate_skipped": stats.duplicate_skipped,
+                    "sources_used": stats.sources_used,
+                    "duration_seconds": stats.duration_seconds,
+                    "success_rate": stats.success_rate
+                }
+            },
+            started_at=started_at,
+            finished_at=finished_at,
+            historical_range={
+                "start_date": (started_at - timedelta(hours=hours_back)).strftime("%Y-%m-%d"),
+                "end_date": started_at.strftime("%Y-%m-%d"),
+                "days": max(1, (hours_back + 23) // 24),
+            },
+        )
+
         return ok(data={
                 "symbol": symbol,
                 "sync_stats": {

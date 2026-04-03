@@ -32,6 +32,8 @@ class AKShareProvider(BaseStockDataProvider):
         self._stock_list_cache = None  # 缓存股票列表，避免重复获取
         self._cache_time = None  # 缓存时间
         self._initialize_akshare()
+
+    SINA_FINANCE_FALLBACK_MAX_SYMBOLS = 20
     
     def _initialize_akshare(self):
         """初始化AKShare连接"""
@@ -572,27 +574,54 @@ class AKShareProvider(BaseStockDataProvider):
             try:
                 logger.debug(f"📊 批量获取 {len(codes)} 只股票的实时行情... (尝试 {attempt + 1}/{max_retries})")
 
+                def fetch_spot_data_em():
+                    import time
+                    time.sleep(0.5)
+                    return self.ak.stock_zh_a_spot_em()
+
                 def fetch_spot_data_sina():
                     import time
                     time.sleep(0.3)
                     return self.ak.stock_zh_a_spot()
 
-                try:
-                    spot_df = await asyncio.to_thread(fetch_spot_data_sina)
-                    logger.debug("✅ 使用新浪财经接口获取数据")
-                except Exception as e:
-                    logger.warning(f"⚠️ 新浪财经接口失败: {e}，尝试东方财富接口...")
+                spot_df = None
+                quote_source = None
+                last_error: Optional[Exception] = None
 
-                    def fetch_spot_data_em():
-                        import time
-                        time.sleep(0.5)
-                        return self.ak.stock_zh_a_spot_em()
-
-                    spot_df = await asyncio.to_thread(fetch_spot_data_em)
-                    logger.debug("✅ 使用东方财富接口获取数据")
+                for source_label, fetcher in (
+                    ("东方财富", fetch_spot_data_em),
+                    ("AKShare 新浪", fetch_spot_data_sina),
+                ):
+                    try:
+                        spot_df = await asyncio.to_thread(fetcher)
+                        if spot_df is not None and not spot_df.empty:
+                            quote_source = source_label
+                            logger.debug("✅ 使用%s接口获取数据", source_label)
+                            break
+                        logger.warning("⚠️ %s 接口返回空数据", source_label)
+                    except Exception as e:
+                        last_error = e
+                        logger.warning("⚠️ %s 接口失败: %s", source_label, e)
 
                 if spot_df is None or spot_df.empty:
-                    logger.warning("⚠️ 全市场快照为空")
+                    logger.warning("⚠️ 全市场快照为空，准备检查 sina_finance 小批量兜底")
+                    if len(codes) <= self.SINA_FINANCE_FALLBACK_MAX_SYMBOLS:
+                        try:
+                            fallback_quotes = await asyncio.to_thread(
+                                self._fetch_cn_quotes_from_sina_finance,
+                                codes,
+                            )
+                            if fallback_quotes:
+                                logger.info(
+                                    "✅ 使用独立 sina_finance 兜底补齐 %s 只股票行情",
+                                    len(fallback_quotes),
+                                )
+                                return fallback_quotes
+                        except Exception as fallback_error:
+                            logger.warning("⚠️ sina_finance 小批量兜底失败: %s", fallback_error)
+
+                    if last_error:
+                        logger.warning("⚠️ 批量源最后错误: %s", last_error)
                     if attempt < max_retries - 1:
                         await asyncio.sleep(retry_delay)
                         continue
@@ -660,6 +689,24 @@ class AKShareProvider(BaseStockDataProvider):
                             "last_sync": datetime.now(timezone.utc),
                             "sync_status": "success"
                         }
+
+                missing_codes = [code for code in codes if code not in quotes_map]
+                if missing_codes and len(missing_codes) <= self.SINA_FINANCE_FALLBACK_MAX_SYMBOLS:
+                    try:
+                        fallback_quotes = await asyncio.to_thread(
+                            self._fetch_cn_quotes_from_sina_finance,
+                            missing_codes,
+                        )
+                        if fallback_quotes:
+                            logger.info(
+                                "🔁 %s 结果缺少 %s 只股票，使用 sina_finance 兜底补齐 %s 只",
+                                quote_source or "批量接口",
+                                len(missing_codes),
+                                len(fallback_quotes),
+                            )
+                            quotes_map.update(fallback_quotes)
+                    except Exception as fallback_error:
+                        logger.warning("⚠️ sina_finance 缺口补齐失败: %s", fallback_error)
 
                 return quotes_map
 
@@ -744,12 +791,91 @@ class AKShareProvider(BaseStockDataProvider):
                 "currency": "CNY",
                 "timezone": "Asia/Shanghai"
             }
+
+    def _build_cn_quote_from_sina_finance(self, code: str, quote: Any) -> Optional[Dict[str, Any]]:
+        """将独立 sina_finance 行情结果转换为系统内统一格式。"""
+        current_price = self._safe_float(getattr(quote, "current_price", None))
+        if current_price <= 0:
+            return None
+
+        pre_close = self._safe_float(getattr(quote, "pre_close", None))
+        change_amount = self._safe_float(getattr(quote, "change_amount", None))
+        change_percent = self._safe_float(getattr(quote, "change_percent", None))
+        open_price = self._safe_float(getattr(quote, "open_price", None))
+        high_price = self._safe_float(getattr(quote, "high_price", None))
+        low_price = self._safe_float(getattr(quote, "low_price", None))
+        volume = self._safe_int(getattr(quote, "volume", None))
+        amount = self._safe_float(getattr(quote, "amount", None))
+
+        trade_date = getattr(quote, "trade_date", None)
+        updated_at = getattr(quote, "updated_at", None)
+        if updated_at and "T" in updated_at and not trade_date:
+            trade_date = updated_at.split("T", 1)[0]
+
+        return {
+            "code": code,
+            "symbol": code,
+            "name": getattr(quote, "name", None) or f"股票{code}",
+            "price": current_price,
+            "close": current_price,
+            "current_price": current_price,
+            "change": change_amount,
+            "change_percent": change_percent,
+            "pct_chg": change_percent,
+            "volume": volume,
+            "amount": amount,
+            "open": open_price,
+            "high": high_price,
+            "low": low_price,
+            "pre_close": pre_close,
+            "turnover_rate": None,
+            "volume_ratio": None,
+            "pe": None,
+            "pe_ttm": None,
+            "pb": None,
+            "total_mv": None,
+            "circ_mv": None,
+            "trade_date": trade_date,
+            "updated_at": updated_at,
+            "full_symbol": self._get_full_symbol(code),
+            "market_info": self._get_market_info(code),
+            "data_source": getattr(quote, "source", None) or "sina_finance",
+            "last_sync": datetime.now(timezone.utc),
+            "sync_status": "success",
+        }
+
+    def _fetch_cn_quotes_from_sina_finance(self, codes: List[str]) -> Dict[str, Dict[str, Any]]:
+        """
+        通过独立 sina_finance provider 获取 A 股实时行情。
+
+        仅用于最后兜底，不应作为大批量主链路。
+        """
+        if not codes:
+            return {}
+
+        from tradingagents.dataflows.providers.sina_finance import SinaFinanceQuoteClient
+
+        client = SinaFinanceQuoteClient(timeout=8)
+        raw_quotes = client.fetch_quotes(codes, market_hint="CN")
+
+        results: Dict[str, Dict[str, Any]] = {}
+        for code in codes:
+            quote = raw_quotes.get(code)
+            if not quote:
+                continue
+            formatted = self._build_cn_quote_from_sina_finance(code, quote)
+            if formatted:
+                results[code] = formatted
+        return results
     
     async def get_batch_stock_quotes(self, codes: List[str]) -> Dict[str, Dict[str, Any]]:
         """
         批量获取股票实时行情（优化版：一次获取全市场快照）
 
-        优先使用新浪财经接口（更稳定），失败时回退到东方财富接口
+        A 股优先顺序：
+        1. 东方财富
+        2. AKShare 新浪接口
+        3. 独立 sina_finance 最后兜底（仅小批量缺口补齐）
 
         Args:
             codes: 股票代码列表
@@ -803,6 +929,8 @@ class AKShareProvider(BaseStockDataProvider):
         if self._is_hk_code(code):
             return await self._get_hk_stock_quote(code)
 
+        fallback_quotes = await self._get_stock_quotes_from_sina_finance(code)
+
         try:
             logger.info(f"📈 使用 stock_bid_ask_em 接口获取 {code} 实时行情...")
 
@@ -821,7 +949,7 @@ class AKShareProvider(BaseStockDataProvider):
 
             if bid_ask_df is None or bid_ask_df.empty:
                 logger.warning(f"⚠️ 未找到{code}的行情数据")
-                return None
+                return fallback_quotes
 
             # 将 DataFrame 转换为字典
             data_dict = dict(zip(bid_ask_df['item'], bid_ask_df['value']))
@@ -881,6 +1009,16 @@ class AKShareProvider(BaseStockDataProvider):
 
         except Exception as e:
             logger.error(f"❌ 获取{code}实时行情失败: {e}", exc_info=True)
+            return fallback_quotes
+
+    async def _get_stock_quotes_from_sina_finance(self, code: str) -> Optional[Dict[str, Any]]:
+        """单股行情的最后兜底：独立 sina_finance provider。"""
+        try:
+            logger.info("🔁 单股实时行情回退到 sina_finance: %s", code)
+            quotes_map = await asyncio.to_thread(self._fetch_cn_quotes_from_sina_finance, [code])
+            return quotes_map.get(code)
+        except Exception as exc:
+            logger.warning("⚠️ sina_finance 单股兜底失败 %s: %s", code, exc)
             return None
     
     async def _get_realtime_quotes_data(self, code: str) -> Dict[str, Any]:

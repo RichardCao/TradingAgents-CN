@@ -119,7 +119,13 @@ export interface SyncHistoryResponse {
   }
 }
 
-export type DeleteSyncedDataType = 'historical' | 'financial' | 'basic' | 'realtime_cache'
+export type DeleteSyncedDataType =
+  | 'historical'
+  | 'financial'
+  | 'basic'
+  | 'realtime_cache'
+  | 'news'
+  | 'social_media'
 
 export interface DeleteSyncedDataRequest {
   symbol: string

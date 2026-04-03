@@ -37,6 +37,9 @@ export interface NewsQueryResponse {
   hours_back: number
   total_count: number
   news: NewsItem[]
+  data_source?: string
+  sync_required?: boolean
+  sync_hint?: string | null
 }
 
 /**
@@ -95,4 +98,3 @@ export const newsApi = {
     })
   }
 }
-

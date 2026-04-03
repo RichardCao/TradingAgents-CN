@@ -349,6 +349,237 @@ def _format_news_section_for_tool(section_title: str, items: List[Dict[str, Any]
     return "\n".join(lines)
 
 
+def _normalize_social_symbol_for_query(ticker: str, market_info: Dict[str, Any]) -> List[str]:
+    clean_code = _strip_market_suffix_for_news(ticker).upper()
+    candidates = {str(ticker).strip().upper(), clean_code}
+
+    if market_info.get("is_china") and clean_code.isdigit():
+        candidates.add(clean_code.zfill(6))
+    if market_info.get("is_hk") and clean_code.isdigit():
+        candidates.add(clean_code.zfill(5))
+
+    return [item for item in candidates if item]
+
+
+def _build_social_presync_required_message(ticker: str, market_name: str) -> str:
+    return (
+        f"❌ 未找到 {market_name} {ticker} 的已同步社媒数据。\n\n"
+        "当前社媒分析链路已切换为“优先使用已同步数据，分析阶段只读”。\n"
+        "请先通过社媒数据导入或保存接口写入数据后，再重新发起分析。"
+    )
+
+
+def _categorize_social_message(message: Dict[str, Any]) -> str:
+    platform = str(message.get("platform") or "").strip().lower()
+    message_type = str(message.get("message_type") or "").strip().lower()
+
+    if platform in {"cninfo_irm", "sse_einteractive"} or message_type in {
+        "investor_question",
+        "company_answer",
+    }:
+        return "official_ir"
+    if platform == "news_proxy" or message_type == "news_sentiment_proxy":
+        return "news_fallback"
+    if platform in {"eastmoney_guba", "xueqiu"} or message_type in {
+        "heat_snapshot",
+        "keyword_snapshot",
+    }:
+        return "community_heat"
+    return "other_social"
+
+
+def _is_sentiment_countable_social_message(message: Dict[str, Any]) -> bool:
+    category = _categorize_social_message(message)
+    if category == "community_heat":
+        return False
+    return bool(str(message.get("content") or "").strip())
+
+
+def _format_social_message_bullet(message: Dict[str, Any]) -> Optional[str]:
+    content = str(message.get("content") or "").strip()
+    if not content:
+        return None
+
+    platform = str(message.get("platform") or "unknown")
+    sentiment = str(message.get("sentiment") or "neutral").lower()
+    publish_time = message.get("publish_time")
+    publish_label = (
+        publish_time.strftime("%Y-%m-%d %H:%M")
+        if isinstance(publish_time, datetime)
+        else "未知时间"
+    )
+    snippet = re.sub(r"\s+", " ", content)[:120]
+    return f"- [{publish_label}] {platform} / {sentiment}: {snippet}"
+
+
+def _build_social_section(title: str, messages: List[Dict[str, Any]], empty_text: str) -> str:
+    lines = [f"## {title}"]
+    formatted = []
+    for message in messages[:6]:
+        bullet = _format_social_message_bullet(message)
+        if bullet:
+            formatted.append(bullet)
+
+    if formatted:
+        lines.extend(formatted)
+    else:
+        lines.append(f"- {empty_text}")
+
+    return "\n".join(lines)
+
+
+def _get_social_media_sentiment_from_database(
+    ticker: str,
+    curr_date: str,
+    market_info: Dict[str, Any],
+) -> str:
+    try:
+        from app.core.database import get_mongo_db_sync
+
+        db = get_mongo_db_sync()
+        collection = db.social_media_messages
+
+        end_dt = datetime.strptime(curr_date, "%Y-%m-%d") + timedelta(days=1)
+        start_dt = end_dt - timedelta(days=7)
+        symbol_candidates = _normalize_social_symbol_for_query(ticker, market_info)
+
+        query = {
+            "symbol": {"$in": symbol_candidates},
+            "publish_time": {"$gte": start_dt, "$lt": end_dt},
+        }
+
+        messages = list(
+            collection.find(query)
+            .sort("publish_time", -1)
+            .limit(20)
+        )
+
+        if not messages:
+            fallback_query = {"symbol": {"$in": symbol_candidates}}
+            messages = list(
+                collection.find(fallback_query)
+                .sort("publish_time", -1)
+                .limit(20)
+            )
+
+        if not messages:
+            return _build_social_presync_required_message(
+                ticker,
+                str(market_info.get("market_name") or "该市场"),
+            )
+
+        sentiment_counts = {"positive": 0, "negative": 0, "neutral": 0}
+        platform_counts: Dict[str, int] = {}
+        category_counts = {
+            "official_ir": 0,
+            "community_heat": 0,
+            "news_fallback": 0,
+            "other_social": 0,
+        }
+        latest_time: Optional[datetime] = None
+        score_total = 0.0
+        scored_count = 0
+        grouped_messages: Dict[str, List[Dict[str, Any]]] = {
+            "official_ir": [],
+            "community_heat": [],
+            "news_fallback": [],
+            "other_social": [],
+        }
+
+        for message in messages:
+            platform = str(message.get("platform") or "unknown")
+            platform_counts[platform] = platform_counts.get(platform, 0) + 1
+            category = _categorize_social_message(message)
+            category_counts[category] += 1
+            grouped_messages[category].append(message)
+
+            publish_time = message.get("publish_time")
+            if isinstance(publish_time, datetime):
+                if latest_time is None or publish_time > latest_time:
+                    latest_time = publish_time
+
+            if _is_sentiment_countable_social_message(message):
+                sentiment = str(message.get("sentiment") or "neutral").lower()
+                if sentiment not in sentiment_counts:
+                    sentiment = "neutral"
+                sentiment_counts[sentiment] += 1
+
+                try:
+                    sentiment_score = message.get("sentiment_score")
+                    if sentiment_score is not None:
+                        score_total += float(sentiment_score)
+                        scored_count += 1
+                except Exception:
+                    pass
+
+        avg_score = score_total / scored_count if scored_count else 0.0
+        platform_summary = "、".join(
+            f"{platform} {count}条"
+            for platform, count in sorted(
+                platform_counts.items(),
+                key=lambda item: item[1],
+                reverse=True,
+            )[:5]
+        ) or "无"
+
+        latest_label = latest_time.strftime("%Y-%m-%d %H:%M") if latest_time else "未知"
+        sentiment_sample_count = sum(sentiment_counts.values())
+        social_sections = [
+            _build_social_section(
+                "官方互动问答",
+                grouped_messages["official_ir"],
+                "最近未读到官方互动问答内容",
+            ),
+            _build_social_section(
+                "社区热度快照",
+                grouped_messages["community_heat"],
+                "最近未读到社区热度快照",
+            ),
+            _build_social_section(
+                "新闻回退摘录",
+                grouped_messages["news_fallback"],
+                "最近未使用新闻回退数据",
+            ),
+        ]
+        if grouped_messages["other_social"]:
+            social_sections.append(
+                _build_social_section(
+                    "其他社媒摘录",
+                    grouped_messages["other_social"],
+                    "最近未读到其他社媒内容",
+                )
+            )
+
+        return (
+            f"# {ticker} 社媒情绪分析\n\n"
+            f"**股票类型**: {market_info.get('market_name', '未知市场')}\n"
+            f"**分析日期**: {curr_date}\n"
+            f"**数据窗口**: 最近 7 天优先，若无则回退为最新已同步数据\n"
+            f"**最新消息时间**: {latest_label}\n"
+            f"**样本数量**: {len(messages)} 条\n"
+            f"**平台分布**: {platform_summary}\n\n"
+            "## 数据结构\n"
+            f"- 官方互动问答: {category_counts['official_ir']} 条\n"
+            f"- 社区热度: {category_counts['community_heat']} 条\n"
+            f"- 新闻回退: {category_counts['news_fallback']} 条\n"
+            f"- 其他社媒: {category_counts['other_social']} 条\n\n"
+            "## 情绪概况\n"
+            f"- 统计口径: 仅对文本类消息计入情绪，社区热度快照不计入\n"
+            f"- 参与情绪统计样本: {sentiment_sample_count} 条\n"
+            f"- 正向: {sentiment_counts['positive']} 条\n"
+            f"- 负向: {sentiment_counts['negative']} 条\n"
+            f"- 中性: {sentiment_counts['neutral']} 条\n"
+            f"- 平均情绪得分: {avg_score:.2f}\n\n"
+            + "\n\n".join(social_sections)
+            + "\n\n---\n*数据来源: social_media_messages（已同步社媒数据，只读分析）*"
+        )
+    except Exception as exc:
+        logger.error(f"❌ [统一情绪工具] 读取社媒数据库失败: {exc}")
+        return (
+            f"❌ 读取 {market_info.get('market_name', '该市场')} {ticker} 的社媒数据失败: {exc}"
+        )
+
+
 class Toolkit:
     _config = DEFAULT_CONFIG.copy()
 
@@ -1840,26 +2071,11 @@ class Toolkit:
                 logger.info(f"🇨🇳🇭🇰 [统一情绪工具] 处理中文市场情绪...")
 
                 try:
-                    # 可以集成微博、雪球、东方财富等中文社交媒体情绪
-                    # 目前使用基础的情绪分析
-                    sentiment_summary = f"""
-## 中文市场情绪分析
-
-**股票**: {ticker} ({market_info['market_name']})
-**分析日期**: {curr_date}
-
-### 市场情绪概况
-- 由于中文社交媒体情绪数据源暂未完全集成，当前提供基础分析
-- 建议关注雪球、东方财富、同花顺等平台的讨论热度
-- 港股市场还需关注香港本地财经媒体情绪
-
-### 情绪指标
-- 整体情绪: 中性
-- 讨论热度: 待分析
-- 投资者信心: 待评估
-
-*注：完整的中文社交媒体情绪分析功能正在开发中*
-"""
+                    sentiment_summary = _get_social_media_sentiment_from_database(
+                        ticker=ticker,
+                        curr_date=curr_date,
+                        market_info=market_info,
+                    )
                     result_data.append(sentiment_summary)
                 except Exception as e:
                     result_data.append(f"## 中文市场情绪\n获取失败: {e}")

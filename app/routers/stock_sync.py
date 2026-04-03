@@ -28,12 +28,16 @@ SYNC_DELETE_TYPE_LABELS = {
     "financial": "财务数据",
     "basic": "基础数据",
     "realtime_cache": "实时行情展示缓存",
+    "news": "新闻数据",
+    "social_media": "社媒数据",
 }
 SYNC_DELETE_TYPE_IMPACTS = {
     "historical": "影响K线和依赖历史行情的分析输入",
     "financial": "影响基本面分析和财务指标展示",
     "basic": "影响名称、板块、交易所等基础信息展示",
     "realtime_cache": "影响自选股页价格和涨跌幅展示",
+    "news": "影响新闻分析师和依赖新闻事件的分析输入",
+    "social_media": "影响社媒分析师和依赖舆情数据的分析输入",
 }
 
 
@@ -92,6 +96,10 @@ def _get_delete_type_collections(delete_type: str) -> List[Dict[str, Any]]:
         return [{"collection": "stock_basic_info", "fields": ["code", "symbol"]}]
     if delete_type == "realtime_cache":
         return [{"collection": "market_quotes", "fields": ["code", "symbol"]}]
+    if delete_type == "news":
+        return [{"collection": "stock_news", "fields": ["symbol", "symbols", "full_symbol"]}]
+    if delete_type == "social_media":
+        return [{"collection": "social_media_messages", "fields": ["symbol"]}]
     raise ValueError(f"不支持的删除类型: {delete_type}")
 
 
@@ -157,6 +165,52 @@ async def _delete_synced_data_for_symbol(
         "deleted_count": total_deleted,
         "details": delete_results,
     }
+
+
+async def save_sync_history_record(
+    *,
+    current_user: dict,
+    symbol: str,
+    sync_types: List[str],
+    data_source_requested: str,
+    data_sources_used: Optional[List[str]],
+    status: str,
+    overall_success: bool,
+    summary: str,
+    errors: Optional[List[str]],
+    result: Dict[str, Any],
+    started_at: datetime,
+    finished_at: datetime,
+    historical_range: Optional[Dict[str, Any]] = None,
+    scope: str = "single",
+) -> None:
+    """写入统一同步历史，供行情/新闻/社媒/分析前预同步共用。"""
+    db = get_mongo_db()
+    symbol_input = str(symbol or "").strip().upper()
+    symbols = [symbol_input] if symbol_input else []
+
+    history_doc = {
+        "user_id": _normalize_user_id(current_user),
+        "scope": scope,
+        "symbol": symbol_input or None,
+        "symbols": symbols,
+        "symbol_count": len(symbols),
+        "sync_types": list(dict.fromkeys([str(item).lower() for item in sync_types if item])),
+        "historical_range": historical_range,
+        "data_source_requested": data_source_requested,
+        "data_sources_used": list(dict.fromkeys([str(item) for item in (data_sources_used or []) if item])) or [data_source_requested],
+        "status": status,
+        "overall_success": overall_success,
+        "summary": summary,
+        "errors": errors or [],
+        "result": result,
+        "started_at": started_at,
+        "finished_at": finished_at,
+        "duration_seconds": round((finished_at - started_at).total_seconds(), 3),
+        "created_at": finished_at,
+    }
+
+    await db[SYNC_HISTORY_COLLECTION].insert_one(history_doc)
 
 
 def _normalize_datetime_like(value: Any) -> Optional[str]:
@@ -384,6 +438,62 @@ async def _build_realtime_cache_summary(db, symbol_variants: List[str]) -> Dict[
     }
 
 
+async def _build_news_summary(db, symbol_variants: List[str]) -> Dict[str, Any]:
+    query = {
+        "$or": [
+            {"symbol": {"$in": symbol_variants}},
+            {"symbols": {"$in": symbol_variants}},
+            {"full_symbol": {"$in": symbol_variants}},
+        ]
+    }
+    total_count = await db.stock_news.count_documents(query)
+    latest_doc = await db.stock_news.find_one(query, sort=[("updated_at", -1), ("publish_time", -1)])
+    earliest_doc = await db.stock_news.find_one(query, sort=[("publish_time", 1)])
+    sources = [str(item) for item in await db.stock_news.distinct("data_source", query) if item]
+
+    return {
+        "delete_type": "news",
+        "delete_type_label": SYNC_DELETE_TYPE_LABELS["news"],
+        "exists": total_count > 0,
+        "record_count": total_count,
+        "data_sources": list(dict.fromkeys(sources)),
+        "latest_update": _normalize_datetime_like(
+            (latest_doc or {}).get("updated_at")
+            or (latest_doc or {}).get("publish_time")
+        ),
+        "range_start": _normalize_datetime_like((earliest_doc or {}).get("publish_time")),
+        "range_end": _normalize_datetime_like((latest_doc or {}).get("publish_time")),
+        "affects_favorites_display": False,
+        "impact_hint": SYNC_DELETE_TYPE_IMPACTS["news"],
+        "target_collections": ["stock_news"],
+    }
+
+
+async def _build_social_media_summary(db, symbol_variants: List[str]) -> Dict[str, Any]:
+    query = {"symbol": {"$in": symbol_variants}}
+    total_count = await db.social_media_messages.count_documents(query)
+    latest_doc = await db.social_media_messages.find_one(query, sort=[("updated_at", -1), ("publish_time", -1)])
+    earliest_doc = await db.social_media_messages.find_one(query, sort=[("publish_time", 1)])
+    sources = [str(item) for item in await db.social_media_messages.distinct("data_source", query) if item]
+
+    return {
+        "delete_type": "social_media",
+        "delete_type_label": SYNC_DELETE_TYPE_LABELS["social_media"],
+        "exists": total_count > 0,
+        "record_count": total_count,
+        "data_sources": list(dict.fromkeys(sources)),
+        "latest_update": _normalize_datetime_like(
+            (latest_doc or {}).get("updated_at")
+            or (latest_doc or {}).get("publish_time")
+        ),
+        "range_start": _normalize_datetime_like((earliest_doc or {}).get("publish_time")),
+        "range_end": _normalize_datetime_like((latest_doc or {}).get("publish_time")),
+        "affects_favorites_display": False,
+        "impact_hint": SYNC_DELETE_TYPE_IMPACTS["social_media"],
+        "target_collections": ["social_media_messages"],
+    }
+
+
 def _get_sync_types(
     sync_realtime: bool = False,
     sync_historical: bool = False,
@@ -577,38 +687,28 @@ async def _save_single_sync_history(
     started_at: datetime,
     finished_at: datetime,
 ) -> None:
-    db = get_mongo_db()
-    symbols = [str(request.symbol).upper()]
     status = _determine_single_status(request, result)
     errors = _collect_errors(result)
-
-    history_doc = {
-        "user_id": _normalize_user_id(current_user),
-        "scope": "single",
-        "symbol": symbols[0],
-        "symbols": symbols,
-        "symbol_count": 1,
-        "sync_types": _get_sync_types(
+    await save_sync_history_record(
+        current_user=current_user,
+        symbol=request.symbol,
+        sync_types=_get_sync_types(
             sync_realtime=request.sync_realtime,
             sync_historical=request.sync_historical,
             sync_financial=request.sync_financial,
             sync_basic=request.sync_basic,
         ),
-        "historical_range": _build_historical_range(request.sync_historical, request.days),
-        "data_source_requested": request.data_source,
-        "data_sources_used": _collect_data_sources_used(result, request.data_source),
-        "status": status,
-        "overall_success": bool(result.get("overall_success")),
-        "summary": _build_single_summary(request, result),
-        "errors": errors,
-        "result": result,
-        "started_at": started_at,
-        "finished_at": finished_at,
-        "duration_seconds": round((finished_at - started_at).total_seconds(), 3),
-        "created_at": finished_at,
-    }
-
-    await db[SYNC_HISTORY_COLLECTION].insert_one(history_doc)
+        data_source_requested=request.data_source,
+        data_sources_used=_collect_data_sources_used(result, request.data_source),
+        status=status,
+        overall_success=bool(result.get("overall_success")),
+        summary=_build_single_summary(request, result),
+        errors=errors,
+        result=result,
+        started_at=started_at,
+        finished_at=finished_at,
+        historical_range=_build_historical_range(request.sync_historical, request.days),
+    )
 
 
 async def _save_batch_sync_history(
@@ -758,7 +858,7 @@ class BatchStockSyncRequest(BaseModel):
 class DeleteSyncedDataRequest(BaseModel):
     """删除已同步数据请求"""
     symbol: str = Field(..., description="股票代码")
-    delete_type: Literal["historical", "financial", "basic", "realtime_cache"] = Field(
+    delete_type: Literal["historical", "financial", "basic", "realtime_cache", "news", "social_media"] = Field(
         ...,
         description="删除类型"
     )
@@ -768,7 +868,7 @@ class DeleteSyncedDataRequest(BaseModel):
 class DeleteSyncedDataBatchRequest(BaseModel):
     """批量删除已同步数据请求"""
     symbol: str = Field(..., description="股票代码")
-    delete_types: List[Literal["historical", "financial", "basic", "realtime_cache"]] = Field(
+    delete_types: List[Literal["historical", "financial", "basic", "realtime_cache", "news", "social_media"]] = Field(
         ...,
         description="删除类型列表"
     )
@@ -1498,6 +1598,8 @@ async def get_synced_data_summary(
             await _build_financial_summary(db, symbol_variants),
             await _build_basic_summary(db, symbol_variants),
             await _build_realtime_cache_summary(db, symbol_variants),
+            await _build_news_summary(db, symbol_variants),
+            await _build_social_media_summary(db, symbol_variants),
         ]
         related_history_limit = min(max(related_history_limit, 1), 20)
         related_history = await _load_sync_history_records(

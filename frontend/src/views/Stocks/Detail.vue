@@ -211,7 +211,22 @@
               </el-select>
             </div>
           </template>
-          <el-empty v-if="newsItems.length === 0" description="暂无新闻" />
+          <el-alert
+            v-if="newsSyncRequired && newsSyncHint"
+            class="news-sync-alert"
+            type="warning"
+            :closable="false"
+            show-icon
+            :title="newsSyncHint"
+          />
+          <el-empty
+            v-if="newsItems.length === 0"
+            :description="newsSyncRequired ? '暂无已同步新闻' : '暂无新闻'"
+          />
+          <el-empty
+            v-else-if="filteredNews.length === 0"
+            description="当前筛选条件下暂无新闻"
+          />
           <div v-else class="news-list">
             <div v-for="(n, i) in filteredNews" :key="i" class="news-item">
               <div class="row">
@@ -354,6 +369,13 @@
 
       <template #footer>
         <el-button @click="syncDialogVisible = false">取消</el-button>
+        <el-button
+          v-if="market === 'A股'"
+          @click="handleSocialMediaSync"
+          :loading="socialMediaSyncLoading"
+        >
+          社媒同步
+        </el-button>
         <el-button type="primary" @click="handleSync" :loading="syncLoading">
           开始同步
         </el-button>
@@ -372,6 +394,7 @@ import { stocksApi } from '@/api/stocks'
 import { analysisApi } from '@/api/analysis'
 import { ApiClient } from '@/api/request'
 import { stockSyncApi } from '@/api/stockSync'
+import { socialMediaApi } from '@/api/socialMedia'
 import { clearAllCache } from '@/api/cache'
 import { use as echartsUse } from 'echarts/core'
 import { CandlestickChart } from 'echarts/charts'
@@ -499,6 +522,7 @@ const syncStatus = ref<any>(null)
 // 数据同步对话框
 const syncDialogVisible = ref(false)
 const syncLoading = ref(false)
+const socialMediaSyncLoading = ref(false)
 type SingleStockDataSource = 'tushare' | 'akshare' | 'mixed'
 type SingleStockSourceMode = 'normal' | 'realtime_only' | 'mixed'
 const syncForm = reactive({
@@ -634,6 +658,46 @@ async function handleSync() {
     ElMessage.error(error.message || '同步失败，请稍后重试')
   } finally {
     syncLoading.value = false
+  }
+}
+
+async function handleSocialMediaSync() {
+  if (!code.value) {
+    ElMessage.warning('股票代码不能为空')
+    return
+  }
+
+  socialMediaSyncLoading.value = true
+  try {
+    const res = await socialMediaApi.syncAShareNative({
+      symbol: code.value,
+      days_back: 30,
+      max_items: 40,
+      allow_news_fallback: true
+    })
+
+    if ((res as any)?.success === false) {
+      throw new Error((res as any)?.message || '社媒同步失败')
+    }
+
+    const data = (res as any)?.data
+    const stats = data?.sync_stats || {}
+    if ((stats.saved_messages || 0) > 0) {
+      const sourceLabel = stats.source || 'unknown'
+      const fallbackHint = stats.fallback_used && stats.fallback_source
+        ? `，已回退 ${stats.fallback_source}`
+        : ''
+      ElMessage.success(
+        `股票 ${code.value} 社媒同步完成：写入 ${stats.saved_messages || 0} 条，来源 ${sourceLabel}${fallbackHint}`
+      )
+    } else {
+      ElMessage.warning((res as any)?.message || '未获取到可用的社媒数据')
+    }
+  } catch (error: any) {
+    console.error('社媒同步失败:', error)
+    ElMessage.error(error.message || '社媒同步失败，请稍后重试')
+  } finally {
+    socialMediaSyncLoading.value = false
   }
 }
 
@@ -856,6 +920,8 @@ async function fetchKline() {
 const newsFilter = ref('all')
 const newsItems = ref<any[]>([])
 const newsSource = ref<string | undefined>(undefined)
+const newsSyncRequired = ref(false)
+const newsSyncHint = ref('')
 
 function cleanTitle(s: any): string {
   const t = String(s || '')
@@ -876,7 +942,12 @@ async function fetchNews() {
       return { title, url, source, time, type }
     })
     newsSource.value = d.source
+    newsSyncRequired.value = Boolean(d.sync_required)
+    newsSyncHint.value = String(d.sync_hint || '')
   } catch (e) {
+    newsItems.value = []
+    newsSyncRequired.value = false
+    newsSyncHint.value = ''
     console.error('获取新闻失败', e)
   }
 }
@@ -1287,6 +1358,7 @@ function exportReport() {
 .k-chart { height: 320px; }
 .legend { margin-top: 8px; font-size: 12px; color: var(--el-text-color-secondary); }
 
+.news-sync-alert { margin-bottom: 12px; }
 .news-card .news-list { display: flex; flex-direction: column; }
 .news-item { padding: 10px 12px; border-bottom: 1px solid var(--el-border-color-lighter); transition: background-color .2s ease; }
 .news-item:last-child { border-bottom: none; }

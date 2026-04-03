@@ -1093,6 +1093,7 @@ const submitAnalysis = async () => {
         include_sentiment: analysisForm.includeSentiment,
         include_risk: analysisForm.includeRisk,
         language: analysisForm.language,
+        auto_sync_before_analysis: true,
         quick_analysis_model: modelSettings.value.quickAnalysisModel,
         deep_analysis_model: modelSettings.value.deepAnalysisModel
       }

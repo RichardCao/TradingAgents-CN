@@ -48,6 +48,7 @@ class AnalysisParameters(BaseModel):
     include_sentiment: bool = True
     include_risk: bool = True
     language: str = "zh-CN"
+    auto_sync_before_analysis: bool = True
     # 模型配置
     quick_analysis_model: Optional[str] = None
     deep_analysis_model: Optional[str] = None

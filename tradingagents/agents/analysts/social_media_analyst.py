@@ -11,6 +11,12 @@ logger = get_logger("analysts.social_media")
 from tradingagents.agents.utils.google_tool_handler import GoogleToolCallHandler
 
 
+def _is_presync_required_sentiment_message(content: str) -> bool:
+    if not content:
+        return False
+    return "已同步社媒数据" in content and "分析阶段只读" in content
+
+
 def _get_company_name_for_social_media(ticker: str, market_info: dict) -> str:
     """
     为社交媒体分析师获取公司名称
@@ -220,6 +226,9 @@ def create_social_media_analyst(llm, toolkit):
             report = ""
             if len(result.tool_calls) == 0:
                 report = result.content
+
+        if _is_presync_required_sentiment_message(report):
+            raise RuntimeError(report)
 
         # 🔧 更新工具调用计数器
         return {

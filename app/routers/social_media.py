@@ -4,7 +4,7 @@
 """
 from typing import Optional, List, Dict, Any
 from datetime import datetime, timedelta
-from fastapi import APIRouter, HTTPException, BackgroundTasks, Query
+from fastapi import APIRouter, HTTPException, BackgroundTasks, Query, Depends
 from pydantic import BaseModel, Field
 
 from app.services.social_media_service import (
@@ -13,6 +13,12 @@ from app.services.social_media_service import (
     SocialMediaStats
 )
 from app.core.response import ok
+from app.routers.auth_db import get_current_user
+from app.routers.stock_sync import save_sync_history_record
+from app.services.social_media_sync_service import (
+    sync_a_share_native_social_media,
+    sync_social_media_from_news_proxy,
+)
 
 router = APIRouter(prefix="/api/social-media", tags=["social-media"])
 
@@ -65,10 +71,29 @@ class SocialMediaQueryRequest(BaseModel):
     skip: int = Field(0, ge=0)
 
 
+class SocialMediaProxySyncRequest(BaseModel):
+    """从已同步新闻生成舆情快照"""
+    symbol: str = Field(..., description="股票代码")
+    hours_back: int = Field(72, ge=1, le=24 * 30, description="回溯小时数")
+    max_items: int = Field(30, ge=1, le=200, description="最大转换条数")
+
+
+class SocialMediaNativeSyncRequest(BaseModel):
+    """A 股原生社媒同步请求"""
+    symbol: str = Field(..., description="股票代码")
+    days_back: int = Field(30, ge=1, le=180, description="回溯天数")
+    max_items: int = Field(40, ge=1, le=200, description="最大抓取条数")
+    allow_news_fallback: bool = Field(True, description="原生源为空时是否回退新闻代理")
+
+
 @router.post("/save", response_model=dict)
-async def save_social_media_messages(request: SocialMediaBatchRequest):
+async def save_social_media_messages(
+    request: SocialMediaBatchRequest,
+    current_user: dict = Depends(get_current_user)
+):
     """批量保存社媒消息"""
     try:
+        started_at = datetime.utcnow()
         service = await get_social_media_service()
 
         # 转换消息格式并添加股票代码
@@ -81,6 +106,38 @@ async def save_social_media_messages(request: SocialMediaBatchRequest):
         # 保存消息
         result = await service.save_social_media_messages(messages)
 
+        finished_at = datetime.utcnow()
+        status = "success" if result.get("saved", 0) > 0 else "failed"
+        if result.get("saved", 0) > 0 and result.get("failed", 0) > 0:
+            status = "partial_success"
+
+        await save_sync_history_record(
+            current_user=current_user,
+            symbol=request.symbol,
+            sync_types=["social_media"],
+            data_source_requested="social_media_save",
+            data_sources_used=list({
+                str(msg.get("data_source"))
+                for msg in messages
+                if msg.get("data_source")
+            }),
+            status=status,
+            overall_success=result.get("saved", 0) > 0,
+            summary=(
+                f"社媒数据保存 {result.get('saved', 0)} 条成功"
+                + (f"，{result.get('failed', 0)} 条失败" if result.get("failed", 0) else "")
+            ),
+            errors=[str(result.get("error"))] if result.get("error") else [],
+            result=result,
+            started_at=started_at,
+            finished_at=finished_at,
+            historical_range={
+                "start_date": started_at.strftime("%Y-%m-%d"),
+                "end_date": finished_at.strftime("%Y-%m-%d"),
+                "days": 1,
+            },
+        )
+
         return ok(
             data=result,
             message=f"成功保存 {result['saved']} 条社媒消息"
@@ -88,6 +145,88 @@ async def save_social_media_messages(request: SocialMediaBatchRequest):
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"保存社媒消息失败: {str(e)}")
+
+
+@router.post("/sync/from-news", response_model=dict)
+async def sync_social_media_from_news(
+    request: SocialMediaProxySyncRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    """从已同步新闻生成舆情快照并写入社媒消息库"""
+    try:
+        result = await sync_social_media_from_news_proxy(
+            symbol=request.symbol,
+            current_user=current_user,
+            hours_back=request.hours_back,
+            max_items=request.max_items,
+            save_history=True,
+            skip_if_existing=False,
+        )
+
+        return ok(
+            data={
+                "symbol": result.symbol,
+                "sync_stats": {
+                    "source": result.source,
+                    "total_news": result.total_news,
+                    "generated_messages": result.generated_messages,
+                    "saved_messages": result.saved_messages,
+                    "failed_messages": result.failed_messages,
+                    "latest_publish_time": result.latest_publish_time,
+                },
+            },
+            message=(
+                f"股票 {result.symbol} 舆情快照同步完成，成功写入 {result.saved_messages} 条"
+                if result.saved_messages > 0
+                else f"股票 {result.symbol} 未找到可转换的已同步新闻数据"
+            ),
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"舆情快照同步失败: {str(e)}")
+
+
+@router.post("/sync/a-share-native", response_model=dict)
+async def sync_a_share_native_social(
+    request: SocialMediaNativeSyncRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    """同步 A 股原生社媒数据，优先互动问答，必要时回退新闻代理。"""
+    try:
+        result = await sync_a_share_native_social_media(
+            symbol=request.symbol,
+            current_user=current_user,
+            days_back=request.days_back,
+            max_items=request.max_items,
+            save_history=True,
+            skip_if_existing=False,
+            allow_news_fallback=request.allow_news_fallback,
+        )
+
+        return ok(
+            data={
+                "symbol": result.symbol,
+                "sync_stats": {
+                    "source": result.source,
+                    "source_details": result.source_details or [],
+                    "total_source_items": result.total_source_items,
+                    "total_news": result.total_news,
+                    "generated_messages": result.generated_messages,
+                    "saved_messages": result.saved_messages,
+                    "failed_messages": result.failed_messages,
+                    "latest_publish_time": result.latest_publish_time,
+                    "fallback_used": result.fallback_used,
+                    "fallback_source": result.fallback_source,
+                },
+            },
+            message=(
+                f"股票 {result.symbol} 社媒同步完成，成功写入 {result.saved_messages} 条"
+                + (f"（已回退 {result.fallback_source}）" if result.fallback_used and result.fallback_source else "")
+                if result.saved_messages > 0
+                else f"股票 {result.symbol} 未获取到可用的 A 股原生社媒数据"
+            ),
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"A股原生社媒同步失败: {str(e)}")
 
 
 @router.post("/query", response_model=dict)

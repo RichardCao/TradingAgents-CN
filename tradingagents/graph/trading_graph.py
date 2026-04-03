@@ -31,6 +31,7 @@ from tradingagents.agents.utils.agent_states import (
     RiskDebateState,
 )
 from tradingagents.dataflows.interface import set_config
+from tradingagents.tools.unified_news_tool import create_unified_news_tool
 
 from .conditional_logic import ConditionalLogic
 from .setup import GraphSetup
@@ -913,13 +914,7 @@ class TradingAgentsGraph:
             "news": ToolNode(
                 [
                     # 统一工具（推荐）
-                    self.toolkit.get_stock_news_unified,
-                    # 在线工具（备用）
-                    self.toolkit.get_global_news_openai,
-                    self.toolkit.get_google_news,
-                    # 离线工具（备用）
-                    self.toolkit.get_finnhub_news,
-                    self.toolkit.get_reddit_news,
+                    create_unified_news_tool(self.toolkit),
                 ]
             ),
             "fundamentals": ToolNode(

@@ -233,6 +233,16 @@
                 同步
               </el-button>
               <el-button
+                v-if="(row.market || 'A股') === 'A股'"
+                type="text"
+                size="small"
+                :loading="socialSyncLoadingStockCode === row.stock_code"
+                @click="syncSocialMediaFromNews(row)"
+                style="color: #8e44ad;"
+              >
+                社媒同步
+              </el-button>
+              <el-button
                 type="text"
                 size="small"
                 @click="analyzeFavorite(row)"
@@ -1001,6 +1011,7 @@ import {
 import { favoritesApi } from '@/api/favorites'
 import { tagsApi } from '@/api/tags'
 import { stockSyncApi } from '@/api/stockSync'
+import { socialMediaApi } from '@/api/socialMedia'
 import { normalizeMarketForAnalysis } from '@/utils/market'
 import { inferStockMarketMetadata } from '@/utils/stockValidator'
 import { ApiClient } from '@/api/request'
@@ -1379,6 +1390,7 @@ const loadFavorites = async () => {
 
 // 同步实时行情
 const syncRealtimeLoading = ref(false)
+const socialSyncLoadingStockCode = ref('')
 const syncAllRealtime = async () => {
   if (favorites.value.length === 0) {
     ElMessage.warning('没有自选股需要同步')
@@ -1407,6 +1419,47 @@ const syncAllRealtime = async () => {
     ElMessage.error(error.message || '同步失败，请稍后重试')
   } finally {
     syncRealtimeLoading.value = false
+  }
+}
+
+const syncSocialMediaFromNews = async (row: FavoriteItem) => {
+  const symbol = String(row.stock_code || '').trim().toUpperCase()
+  if (!symbol) {
+    ElMessage.warning('缺少股票代码，无法同步社媒数据')
+    return
+  }
+
+  socialSyncLoadingStockCode.value = symbol
+  try {
+    const res = await socialMediaApi.syncAShareNative({
+      symbol,
+      days_back: 30,
+      max_items: 40,
+      allow_news_fallback: true
+    })
+
+    if ((res as any)?.success === false) {
+      throw new Error((res as any)?.message || '社媒同步失败')
+    }
+
+    const data = (res as any)?.data
+    const stats = data?.sync_stats || {}
+    if ((stats.saved_messages || 0) > 0) {
+      const sourceLabel = stats.source || 'unknown'
+      const fallbackHint = stats.fallback_used && stats.fallback_source
+        ? `，已回退 ${stats.fallback_source}`
+        : ''
+      ElMessage.success(
+        `股票 ${symbol} 社媒同步完成：写入 ${stats.saved_messages || 0} 条，来源 ${sourceLabel}${fallbackHint}`
+      )
+    } else {
+      ElMessage.warning((res as any)?.message || '未获取到可用的社媒数据')
+    }
+  } catch (error: any) {
+    console.error('社媒同步失败:', error)
+    ElMessage.error(error.message || '社媒同步失败，请稍后重试')
+  } finally {
+    socialSyncLoadingStockCode.value = ''
   }
 }
 
@@ -2122,7 +2175,9 @@ const formatSyncTypeLabel = (type: string) => {
     realtime: '实时行情',
     historical: '历史行情',
     financial: '财务数据',
-    basic: '基础数据'
+    basic: '基础数据',
+    news: '新闻数据',
+    social_media: '社媒数据'
   }
   return map[type] || type
 }
@@ -2241,8 +2296,8 @@ const resetDeleteLinkedContext = () => {
 const buildHistoryContextFromSummaryItem = (row: SyncedDataSummaryItem): SyncLinkContext => ({
   syncTypes: [mapDeleteTypeToSyncType(row.delete_type)],
   dataSources: row.data_sources || [],
-  rangeStart: row.delete_type === 'historical' ? (row.range_start || '') : '',
-  rangeEnd: row.delete_type === 'historical' ? (row.range_end || '') : '',
+  rangeStart: row.range_start || '',
+  rangeEnd: row.range_end || '',
   source: 'data'
 })
 

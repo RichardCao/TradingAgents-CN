@@ -7,6 +7,69 @@ import { ElMessage } from 'element-plus'
 import NProgress from 'nprogress'
 import 'nprogress/nprogress.css'
 
+const ROUTE_ERROR_RETRY_KEY = 'router-dynamic-import-retry-state'
+const ROUTE_ERROR_RETRY_WINDOW_MS = 15_000
+
+const getRouteErrorMessage = (error: unknown): string => {
+  if (error instanceof Error && error.message) {
+    return error.message
+  }
+
+  if (typeof error === 'string') {
+    return error
+  }
+
+  return '未知路由错误'
+}
+
+const normalizeDynamicImportMessage = (message: string): string => {
+  return message.replace(/\?t=\d+/g, '')
+}
+
+const isDynamicImportRouteError = (message: string): boolean => {
+  const normalized = message.toLowerCase()
+  return [
+    'failed to fetch dynamically imported module',
+    'error loading dynamically imported module',
+    'importing a module script failed',
+    'unable to preload css',
+    'load failed'
+  ].some((keyword) => normalized.includes(keyword))
+}
+
+const getDynamicImportRetryState = (): { fingerprint: string; ts: number } | null => {
+  const raw = sessionStorage.getItem(ROUTE_ERROR_RETRY_KEY)
+  if (!raw) {
+    return null
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as { fingerprint?: string; ts?: number }
+    if (typeof parsed.fingerprint === 'string' && typeof parsed.ts === 'number') {
+      return { fingerprint: parsed.fingerprint, ts: parsed.ts }
+    }
+  } catch (error) {
+    console.warn('读取路由重试状态失败，将忽略旧状态:', error)
+  }
+
+  sessionStorage.removeItem(ROUTE_ERROR_RETRY_KEY)
+  return null
+}
+
+const setDynamicImportRetryState = (fingerprint: string) => {
+  sessionStorage.setItem(
+    ROUTE_ERROR_RETRY_KEY,
+    JSON.stringify({
+      fingerprint,
+      ts: Date.now()
+    })
+  )
+}
+
+const clearDynamicImportRetryState = () => {
+  sessionStorage.removeItem(ROUTE_ERROR_RETRY_KEY)
+}
+
 // 配置NProgress
 NProgress.configure({
   showSpinner: false,
@@ -477,6 +540,7 @@ router.beforeEach(async (to, _from, next) => {
 router.afterEach(() => {
   // 结束进度条
   NProgress.done()
+  clearDynamicImportRetryState()
 
   // 页面切换后的处理
   nextTick(() => {
@@ -488,7 +552,24 @@ router.afterEach(() => {
 router.onError((error) => {
   console.error('路由错误:', error)
   NProgress.done()
-  ElMessage.error('页面加载失败，请重试')
+
+  const message = getRouteErrorMessage(error)
+  const normalizedMessage = normalizeDynamicImportMessage(message)
+  const shouldRetryWithReload = isDynamicImportRouteError(normalizedMessage)
+  const fingerprint = `${window.location.pathname}|${normalizedMessage}`
+  const retryState = getDynamicImportRetryState()
+  const alreadyRetriedRecently =
+    retryState?.fingerprint === fingerprint &&
+    Date.now() - retryState.ts < ROUTE_ERROR_RETRY_WINDOW_MS
+
+  if (shouldRetryWithReload && !alreadyRetriedRecently) {
+    console.warn('检测到动态模块加载失败，准备自动刷新页面一次:', normalizedMessage)
+    setDynamicImportRetryState(fingerprint)
+    window.location.reload()
+    return
+  }
+
+  ElMessage.error(`页面加载失败：${normalizedMessage}`)
 })
 
 export default router

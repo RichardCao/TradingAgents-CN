@@ -48,6 +48,7 @@ from tradingagents.dataflows.providers.common.yfinance_client import (
     get_ticker_history,
     get_ticker_info,
 )
+from tradingagents.dataflows.providers.china.akshare import AKShareProvider
 from tradingagents.graph.propagation import Propagator
 from tradingagents.graph.trading_graph import _build_anthropic_reasoning_kwargs
 from tradingagents.llm_adapters.openai_responses_adapter import (
@@ -58,6 +59,13 @@ from tradingagents.utils.stock_utils import StockUtils
 
 
 class TestRecentChanges(unittest.TestCase):
+    @staticmethod
+    def _build_akshare_provider_for_test() -> AKShareProvider:
+        with patch.object(AKShareProvider, "_initialize_akshare", lambda self: None):
+            provider = AKShareProvider()
+        provider.connected = True
+        return provider
+
     def test_favorites_service_preserves_realtime_trade_date_when_change_uses_historical_fallback(self):
         service = FavoritesService()
 
@@ -968,6 +976,147 @@ class TestRecentChanges(unittest.TestCase):
         self.assertEqual(snapshot.page_type, "hk_quote_page")
         self.assertIn("泡泡玛特(09992)", snapshot.title)
         self.assertTrue(snapshot.has_quote_api_reference)
+
+    def test_akshare_provider_batch_quotes_prefers_eastmoney_before_sina_paths(self):
+        provider = self._build_akshare_provider_for_test()
+
+        class FakeAk:
+            def __init__(self):
+                self.calls = []
+
+            def stock_zh_a_spot_em(self):
+                self.calls.append("eastmoney")
+                return pd.DataFrame(
+                    [
+                        {
+                            "代码": "600519",
+                            "名称": "贵州茅台",
+                            "最新价": 1688.0,
+                            "涨跌额": 18.0,
+                            "涨跌幅": 1.08,
+                            "成交量": 12345,
+                            "成交额": 678900000.0,
+                            "今开": 1672.0,
+                            "最高": 1690.0,
+                            "最低": 1668.0,
+                            "昨收": 1670.0,
+                        }
+                    ]
+                )
+
+            def stock_zh_a_spot(self):
+                self.calls.append("sina")
+                raise AssertionError("东财成功时不应继续调用 AKShare 新浪接口")
+
+        provider.ak = FakeAk()
+        provider._fetch_cn_quotes_from_sina_finance = MagicMock(return_value={})
+
+        quotes_map = asyncio.run(provider.get_batch_stock_quotes(["600519"]))
+
+        self.assertIn("600519", quotes_map)
+        self.assertEqual(provider.ak.calls, ["eastmoney"])
+        provider._fetch_cn_quotes_from_sina_finance.assert_not_called()
+
+    def test_akshare_provider_batch_quotes_uses_sina_finance_only_for_small_missing_subset(self):
+        provider = self._build_akshare_provider_for_test()
+
+        class FakeAk:
+            def __init__(self):
+                self.calls = []
+
+            def stock_zh_a_spot_em(self):
+                self.calls.append("eastmoney")
+                return pd.DataFrame(
+                    [
+                        {
+                            "代码": "600519",
+                            "名称": "贵州茅台",
+                            "最新价": 1688.0,
+                            "涨跌额": 18.0,
+                            "涨跌幅": 1.08,
+                            "成交量": 12345,
+                            "成交额": 678900000.0,
+                            "今开": 1672.0,
+                            "最高": 1690.0,
+                            "最低": 1668.0,
+                            "昨收": 1670.0,
+                        }
+                    ]
+                )
+
+            def stock_zh_a_spot(self):
+                self.calls.append("sina")
+                return pd.DataFrame([])
+
+        provider.ak = FakeAk()
+        provider._fetch_cn_quotes_from_sina_finance = MagicMock(
+            return_value={
+                "300750": {
+                    "code": "300750",
+                    "symbol": "300750",
+                    "name": "宁德时代",
+                    "price": 210.0,
+                    "close": 210.0,
+                    "current_price": 210.0,
+                    "change": 3.0,
+                    "change_percent": 1.45,
+                    "pct_chg": 1.45,
+                    "volume": 1000,
+                    "amount": 210000.0,
+                    "open": 208.0,
+                    "high": 211.0,
+                    "low": 207.0,
+                    "pre_close": 207.0,
+                    "trade_date": "2026-04-03",
+                    "updated_at": "2026-04-03T10:00:00",
+                    "data_source": "sina_finance",
+                }
+            }
+        )
+
+        quotes_map = asyncio.run(provider.get_batch_stock_quotes(["600519", "300750"]))
+
+        self.assertIn("600519", quotes_map)
+        self.assertIn("300750", quotes_map)
+        self.assertEqual(quotes_map["300750"]["data_source"], "sina_finance")
+        provider._fetch_cn_quotes_from_sina_finance.assert_called_once_with(["300750"])
+
+    def test_akshare_provider_single_quote_falls_back_to_sina_finance(self):
+        provider = self._build_akshare_provider_for_test()
+
+        class FakeAk:
+            def stock_bid_ask_em(self, symbol):
+                raise RuntimeError(f"{symbol} bid/ask unavailable")
+
+        provider.ak = FakeAk()
+        provider._get_stock_quotes_from_sina_finance = AsyncMock(
+            return_value={
+                "code": "600519",
+                "symbol": "600519",
+                "name": "贵州茅台",
+                "price": 1688.0,
+                "close": 1688.0,
+                "current_price": 1688.0,
+                "change": 18.0,
+                "change_percent": 1.08,
+                "pct_chg": 1.08,
+                "volume": 12345,
+                "amount": 678900000.0,
+                "open": 1672.0,
+                "high": 1690.0,
+                "low": 1668.0,
+                "pre_close": 1670.0,
+                "trade_date": "2026-04-03",
+                "updated_at": "2026-04-03T10:00:00",
+                "data_source": "sina_finance",
+            }
+        )
+
+        quote = asyncio.run(provider.get_stock_quotes("600519"))
+
+        self.assertIsNotNone(quote)
+        self.assertEqual(quote["data_source"], "sina_finance")
+        provider._get_stock_quotes_from_sina_finance.assert_awaited_once_with("600519")
 
     def test_hk_unified_news_tool_returns_explicit_error_when_both_sources_empty(self):
         toolkit = Toolkit(config={})

@@ -16,6 +16,20 @@ from tradingagents.agents.utils.google_tool_handler import GoogleToolCallHandler
 logger = get_logger("analysts.news")
 
 
+def _is_presync_required_news_message(content: str) -> bool:
+    if not content:
+        return False
+    return "已预同步新闻数据" in content and "分析阶段只读" in content
+
+
+def _has_usable_news_content(content: str) -> bool:
+    if not content or not content.strip():
+        return False
+    if _is_presync_required_news_message(content):
+        return False
+    return len(content.strip()) > 100
+
+
 def create_news_analyst(llm, toolkit):
     @log_analyst_module("news")
     def news_analyst_node(state):
@@ -216,7 +230,10 @@ def create_news_analyst(llm, toolkit):
                 logger.info(f"[新闻分析师] 📋 预处理返回结果长度: {len(pre_fetched_news) if pre_fetched_news else 0} 字符")
                 logger.info(f"[新闻分析师] 📄 预处理返回结果预览 (前500字符): {pre_fetched_news[:500] if pre_fetched_news else 'None'}")
 
-                if pre_fetched_news and len(pre_fetched_news.strip()) > 100:
+                if _is_presync_required_news_message(pre_fetched_news):
+                    raise RuntimeError(pre_fetched_news)
+
+                if _has_usable_news_content(pre_fetched_news):
                     logger.info(f"[新闻分析师] ✅ 预处理成功获取新闻: {len(pre_fetched_news)} 字符")
 
                     # 直接基于预获取的新闻生成分析，跳过工具调用
@@ -346,7 +363,10 @@ def create_news_analyst(llm, toolkit):
                     logger.info(f"[新闻分析师] 📋 强制获取返回结果长度: {len(forced_news) if forced_news else 0} 字符")
                     logger.info(f"[新闻分析师] 📄 强制获取返回结果预览 (前500字符): {forced_news[:500] if forced_news else 'None'}")
 
-                    if forced_news and len(forced_news.strip()) > 100:
+                    if _is_presync_required_news_message(forced_news):
+                        raise RuntimeError(forced_news)
+
+                    if _has_usable_news_content(forced_news):
                         logger.info(f"[新闻分析师] ✅ 强制获取新闻成功: {len(forced_news)} 字符")
 
                         # 基于真实新闻数据重新生成分析
@@ -375,16 +395,16 @@ def create_news_analyst(llm, toolkit):
                             logger.warning(f"[新闻分析师] ⚠️ 强制补救LLM返回为空，使用原始结果")
                             report = result.content if hasattr(result, 'content') else ""
                     else:
-                        logger.warning(f"[新闻分析师] ⚠️ 统一新闻工具获取失败或内容过短（{len(forced_news) if forced_news else 0}字符），使用原始结果")
+                        logger.warning(f"[新闻分析师] ⚠️ 统一新闻工具获取失败或内容过短（{len(forced_news) if forced_news else 0}字符），终止本次新闻分析")
                         if forced_news:
                             logger.warning(f"[新闻分析师] 📄 失败的新闻内容: {forced_news}")
-                        report = result.content if hasattr(result, 'content') else ""
+                        raise RuntimeError("新闻分析未获取到可用新闻数据")
 
                 except Exception as e:
                     logger.error(f"[新闻分析师] ❌ 强制补救过程失败: {e}")
                     import traceback
                     logger.error(f"[新闻分析师] 📋 异常堆栈: {traceback.format_exc()}")
-                    report = result.content if hasattr(result, 'content') else ""
+                    raise
             else:
                 # 有工具调用，直接使用结果
                 report = result.content

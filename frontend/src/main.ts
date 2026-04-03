@@ -18,6 +18,98 @@ import { setupTokenRefreshTimer } from './utils/auth'
 import './styles/index.scss'
 import './styles/dark-theme.scss'
 
+const VITE_PRELOAD_RETRY_KEY = 'vite-preload-retry-state'
+const VITE_PRELOAD_RETRY_WINDOW_MS = 15_000
+
+type VitePreloadRetryState = {
+  fingerprint: string
+  ts: number
+}
+
+const readPreloadRetryState = (): VitePreloadRetryState | null => {
+  const raw = sessionStorage.getItem(VITE_PRELOAD_RETRY_KEY)
+  if (!raw) {
+    return null
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as Partial<VitePreloadRetryState>
+    if (typeof parsed.fingerprint === 'string' && typeof parsed.ts === 'number') {
+      return {
+        fingerprint: parsed.fingerprint,
+        ts: parsed.ts
+      }
+    }
+  } catch (error) {
+    console.warn('读取 Vite 模块重试状态失败，将忽略旧状态:', error)
+  }
+
+  sessionStorage.removeItem(VITE_PRELOAD_RETRY_KEY)
+  return null
+}
+
+const writePreloadRetryState = (fingerprint: string) => {
+  sessionStorage.setItem(
+    VITE_PRELOAD_RETRY_KEY,
+    JSON.stringify({
+      fingerprint,
+      ts: Date.now()
+    } satisfies VitePreloadRetryState)
+  )
+}
+
+const clearPreloadRetryState = () => {
+  sessionStorage.removeItem(VITE_PRELOAD_RETRY_KEY)
+}
+
+const normalizeModuleUrl = (value: string): string => {
+  return value.replace(/\?t=\d+/g, '')
+}
+
+const extractDynamicImportFingerprint = (event: Event): string | null => {
+  const customEvent = event as CustomEvent<{ path?: string }> & {
+    payload?: { path?: string }
+  }
+  const path = customEvent.payload?.path ?? customEvent.detail?.path
+
+  if (typeof path === 'string' && path.length > 0) {
+    return normalizeModuleUrl(path)
+  }
+
+  const target = event.target as EventTarget | null
+  if (target && typeof (target as { toString?: () => string }).toString === 'function') {
+    const text = String(target)
+    if (text.includes('/src/')) {
+      return normalizeModuleUrl(text)
+    }
+  }
+
+  return null
+}
+
+// 在应用真正挂载前就拦住 Vite 懒加载资源失效，避免用户先看到白屏或路由错误提示。
+window.addEventListener('vite:preloadError', (event) => {
+  const fingerprint = extractDynamicImportFingerprint(event) ?? window.location.pathname
+  const retryState = readPreloadRetryState()
+  const alreadyRetriedRecently =
+    retryState?.fingerprint === fingerprint &&
+    Date.now() - retryState.ts < VITE_PRELOAD_RETRY_WINDOW_MS
+
+  console.warn('捕获到 Vite 动态模块加载失败:', {
+    fingerprint,
+    alreadyRetriedRecently
+  })
+
+  if (alreadyRetriedRecently) {
+    clearPreloadRetryState()
+    return
+  }
+
+  event.preventDefault()
+  writePreloadRetryState(fingerprint)
+  window.location.reload()
+})
+
 // 创建应用实例
 const app = createApp(App)
 
@@ -140,6 +232,7 @@ const initApp = async () => {
   } finally {
     // 无论认证状态如何，都挂载应用
     app.mount('#app')
+    clearPreloadRetryState()
     console.log('🚀 应用已挂载')
   }
 }

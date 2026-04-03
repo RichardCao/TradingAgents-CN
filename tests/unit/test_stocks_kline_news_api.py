@@ -128,3 +128,21 @@ def test_hk_news_uses_foreign_stock_service(client):
     assert data["source"] == "akshare"
     assert len(data["items"]) == 1
     assert data["items"][0]["title"] == "泡泡玛特港股新闻样例"
+
+
+def test_a_share_news_cache_miss_returns_sync_hint_without_runtime_sync(client):
+    fake_news_service = AsyncMock()
+    fake_news_service.query_news.return_value = []
+
+    with patch("app.services.news_data_service.get_news_data_service", AsyncMock(return_value=fake_news_service)):
+        resp = client.get("/api/stocks/000001/news", params={"days": 2, "limit": 2})
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body.get("success") is True
+    data = body.get("data")
+    assert data["code"] == "000001"
+    assert data["source"] == "database"
+    assert data["items"] == []
+    assert data["sync_required"] is True
+    assert "先执行新闻同步" in data["sync_hint"]
