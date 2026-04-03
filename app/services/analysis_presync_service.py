@@ -213,7 +213,7 @@ async def run_analysis_pre_sync(
                 max_items=40,
                 save_history=True,
                 skip_if_existing=True,
-                allow_news_fallback=True,
+                allow_news_fallback=False,
             )
             if social_sync_result.saved_messages > 0 or social_sync_result.used_existing_social_data:
                 social_check = {

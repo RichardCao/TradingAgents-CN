@@ -232,16 +232,29 @@
               >
                 同步
               </el-button>
-              <el-button
+              <el-dropdown
                 v-if="(row.market || 'A股') === 'A股'"
-                type="text"
-                size="small"
-                :loading="socialSyncLoadingStockCode === row.stock_code"
-                @click="syncSocialMediaFromNews(row)"
-                style="color: #8e44ad;"
+                trigger="click"
+                @command="(command) => handleSocialSyncCommand(row, command)"
+                :disabled="socialSyncLoadingStockCode === row.stock_code"
               >
-                社媒同步
-              </el-button>
+                <span
+                  class="favorite-action-link social-sync-trigger"
+                  :class="{ 'is-loading': socialSyncLoadingStockCode === row.stock_code }"
+                >
+                  {{ socialSyncLoadingStockCode === row.stock_code ? '同步中' : '社媒同步' }}
+                </span>
+                <template #dropdown>
+                  <el-dropdown-menu>
+                    <el-dropdown-item command="native">
+                      原生社媒
+                    </el-dropdown-item>
+                    <el-dropdown-item command="news_proxy">
+                      新闻回退
+                    </el-dropdown-item>
+                  </el-dropdown-menu>
+                </template>
+              </el-dropdown>
               <el-button
                 type="text"
                 size="small"
@@ -1422,7 +1435,22 @@ const syncAllRealtime = async () => {
   }
 }
 
-const syncSocialMediaFromNews = async (row: FavoriteItem) => {
+type SocialSyncMode = 'native' | 'news_proxy'
+
+const formatSocialSyncSourceLabel = (stats: any, fallbackUsed: boolean) => {
+  if (fallbackUsed) {
+    return stats?.fallback_source || stats?.source || 'news_proxy'
+  }
+  const details = Array.isArray(stats?.source_details)
+    ? stats.source_details.filter((item: string) => String(item || '').trim())
+    : []
+  if (details.length > 0) {
+    return details.join(' + ')
+  }
+  return stats?.source || 'unknown'
+}
+
+const runSocialMediaSync = async (row: FavoriteItem, mode: SocialSyncMode) => {
   const symbol = String(row.stock_code || '').trim().toUpperCase()
   if (!symbol) {
     ElMessage.warning('缺少股票代码，无法同步社媒数据')
@@ -1431,12 +1459,18 @@ const syncSocialMediaFromNews = async (row: FavoriteItem) => {
 
   socialSyncLoadingStockCode.value = symbol
   try {
-    const res = await socialMediaApi.syncAShareNative({
-      symbol,
-      days_back: 30,
-      max_items: 40,
-      allow_news_fallback: true
-    })
+    const res = mode === 'native'
+      ? await socialMediaApi.syncAShareNative({
+        symbol,
+        days_back: 30,
+        max_items: 40,
+        allow_news_fallback: false
+      })
+      : await socialMediaApi.syncFromNews({
+        symbol,
+        hours_back: 72,
+        max_items: 30
+      })
 
     if ((res as any)?.success === false) {
       throw new Error((res as any)?.message || '社媒同步失败')
@@ -1445,12 +1479,11 @@ const syncSocialMediaFromNews = async (row: FavoriteItem) => {
     const data = (res as any)?.data
     const stats = data?.sync_stats || {}
     if ((stats.saved_messages || 0) > 0) {
-      const sourceLabel = stats.source || 'unknown'
-      const fallbackHint = stats.fallback_used && stats.fallback_source
-        ? `，已回退 ${stats.fallback_source}`
-        : ''
+      const fallbackUsed = Boolean(stats.fallback_used && stats.fallback_source)
+      const sourceLabel = formatSocialSyncSourceLabel(stats, fallbackUsed)
+      const modeLabel = mode === 'native' ? '原生社媒' : '新闻回退'
       ElMessage.success(
-        `股票 ${symbol} 社媒同步完成：写入 ${stats.saved_messages || 0} 条，来源 ${sourceLabel}${fallbackHint}`
+        `股票 ${symbol} ${modeLabel}同步完成：写入 ${stats.saved_messages || 0} 条，来源 ${sourceLabel}`
       )
     } else {
       ElMessage.warning((res as any)?.message || '未获取到可用的社媒数据')
@@ -1461,6 +1494,11 @@ const syncSocialMediaFromNews = async (row: FavoriteItem) => {
   } finally {
     socialSyncLoadingStockCode.value = ''
   }
+}
+
+const handleSocialSyncCommand = async (row: FavoriteItem, command: string | number | object) => {
+  const mode = command === 'news_proxy' ? 'news_proxy' : 'native'
+  await runSocialMediaSync(row, mode)
 }
 
 const loadUserTags = async () => {
@@ -2802,6 +2840,18 @@ onMounted(() => {
     margin-left: 0;
     min-width: auto;
     padding: 0;
+  }
+
+  .social-sync-trigger {
+    color: #8e44ad;
+    cursor: pointer;
+    font-size: 13px;
+    line-height: 1;
+  }
+
+  .social-sync-trigger.is-loading {
+    color: var(--el-text-color-secondary);
+    cursor: not-allowed;
   }
 
   .delete-sync-hint {

@@ -369,13 +369,26 @@
 
       <template #footer>
         <el-button @click="syncDialogVisible = false">取消</el-button>
-        <el-button
+        <el-dropdown
           v-if="market === 'A股'"
-          @click="handleSocialMediaSync"
-          :loading="socialMediaSyncLoading"
+          trigger="click"
+          @command="handleSocialMediaSyncCommand"
+          :disabled="socialMediaSyncLoading"
         >
-          社媒同步
-        </el-button>
+          <el-button :loading="socialMediaSyncLoading">
+            {{ socialMediaSyncLoading ? '同步中' : '社媒同步' }}
+          </el-button>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item command="native">
+                原生社媒
+              </el-dropdown-item>
+              <el-dropdown-item command="news_proxy">
+                新闻回退
+              </el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
         <el-button type="primary" @click="handleSync" :loading="syncLoading">
           开始同步
         </el-button>
@@ -661,7 +674,22 @@ async function handleSync() {
   }
 }
 
-async function handleSocialMediaSync() {
+type SocialSyncMode = 'native' | 'news_proxy'
+
+function formatSocialSyncSourceLabel(stats: any, fallbackUsed: boolean) {
+  if (fallbackUsed) {
+    return stats?.fallback_source || stats?.source || 'news_proxy'
+  }
+  const details = Array.isArray(stats?.source_details)
+    ? stats.source_details.filter((item: string) => String(item || '').trim())
+    : []
+  if (details.length > 0) {
+    return details.join(' + ')
+  }
+  return stats?.source || 'unknown'
+}
+
+async function runSocialMediaSync(mode: SocialSyncMode) {
   if (!code.value) {
     ElMessage.warning('股票代码不能为空')
     return
@@ -669,12 +697,18 @@ async function handleSocialMediaSync() {
 
   socialMediaSyncLoading.value = true
   try {
-    const res = await socialMediaApi.syncAShareNative({
-      symbol: code.value,
-      days_back: 30,
-      max_items: 40,
-      allow_news_fallback: true
-    })
+    const res = mode === 'native'
+      ? await socialMediaApi.syncAShareNative({
+        symbol: code.value,
+        days_back: 30,
+        max_items: 40,
+        allow_news_fallback: false
+      })
+      : await socialMediaApi.syncFromNews({
+        symbol: code.value,
+        hours_back: 72,
+        max_items: 30
+      })
 
     if ((res as any)?.success === false) {
       throw new Error((res as any)?.message || '社媒同步失败')
@@ -683,12 +717,11 @@ async function handleSocialMediaSync() {
     const data = (res as any)?.data
     const stats = data?.sync_stats || {}
     if ((stats.saved_messages || 0) > 0) {
-      const sourceLabel = stats.source || 'unknown'
-      const fallbackHint = stats.fallback_used && stats.fallback_source
-        ? `，已回退 ${stats.fallback_source}`
-        : ''
+      const fallbackUsed = Boolean(stats.fallback_used && stats.fallback_source)
+      const sourceLabel = formatSocialSyncSourceLabel(stats, fallbackUsed)
+      const modeLabel = mode === 'native' ? '原生社媒' : '新闻回退'
       ElMessage.success(
-        `股票 ${code.value} 社媒同步完成：写入 ${stats.saved_messages || 0} 条，来源 ${sourceLabel}${fallbackHint}`
+        `股票 ${code.value} ${modeLabel}同步完成：写入 ${stats.saved_messages || 0} 条，来源 ${sourceLabel}`
       )
     } else {
       ElMessage.warning((res as any)?.message || '未获取到可用的社媒数据')
@@ -699,6 +732,11 @@ async function handleSocialMediaSync() {
   } finally {
     socialMediaSyncLoading.value = false
   }
+}
+
+async function handleSocialMediaSyncCommand(command: string | number | object) {
+  const mode: SocialSyncMode = command === 'news_proxy' ? 'news_proxy' : 'native'
+  await runSocialMediaSync(mode)
 }
 
 async function refreshMockQuote() {

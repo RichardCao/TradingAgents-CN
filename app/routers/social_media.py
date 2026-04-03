@@ -83,7 +83,7 @@ class SocialMediaNativeSyncRequest(BaseModel):
     symbol: str = Field(..., description="股票代码")
     days_back: int = Field(30, ge=1, le=180, description="回溯天数")
     max_items: int = Field(40, ge=1, le=200, description="最大抓取条数")
-    allow_news_fallback: bool = Field(True, description="原生源为空时是否回退新闻代理")
+    allow_news_fallback: bool = Field(False, description="原生源为空时是否回退新闻代理")
 
 
 @router.post("/save", response_model=dict)
