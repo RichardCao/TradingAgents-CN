@@ -124,6 +124,22 @@
 
 ⚠️ **重要提醒**：在分析股票之前，请按相关文档要求，将股票数据同步完成，否则分析结果将会出现数据错误。
 
+#### A股实时行情最后兜底说明
+
+A 股实时行情主链路仍优先使用 AKShare / 东方财富等标准来源。  
+`sina_finance / hq.sinajs.cn` 仅作为最后的小批量兜底，不作为主数据源。
+
+如果需要控制这条兜底链路，可通过环境变量设置：
+
+- `TRADINGAGENTS_ENABLE_SINA_FINANCE_FALLBACK=true|false`
+- `TRADINGAGENTS_SINA_FINANCE_FALLBACK_MAX_SYMBOLS=20`
+
+建议：
+
+- 正常本地使用：保持默认值
+- 如果担心抓取边界或要完全关闭新浪兜底：将 `TRADINGAGENTS_ENABLE_SINA_FINANCE_FALLBACK=false`
+- 如果只想允许极小批量缺口补齐：把 `TRADINGAGENTS_SINA_FINANCE_FALLBACK_MAX_SYMBOLS` 调小
+
 
 
 #### 📚 使用指南

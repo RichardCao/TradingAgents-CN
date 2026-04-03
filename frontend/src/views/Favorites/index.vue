@@ -232,6 +232,14 @@
               >
                 同步
               </el-button>
+              <el-button
+                type="text"
+                size="small"
+                style="color: #16a085;"
+                @click="openContentDataDialog(row)"
+              >
+                内容数据
+              </el-button>
               <el-dropdown
                 v-if="(row.market || 'A股') === 'A股'"
                 trigger="click"
@@ -284,6 +292,133 @@
         </el-empty>
       </div>
     </el-card>
+
+    <el-dialog
+      v-model="contentDataDialogVisible"
+      title="内容数据"
+      width="880px"
+    >
+      <div class="content-data-header">
+        <div class="content-data-header__title">
+          {{ contentDataDialog.stock_code || '-' }}｜{{ contentDataDialog.stock_name || '-' }}
+        </div>
+        <div class="content-data-header__meta">
+          <span>市场：{{ contentDataDialog.market || '-' }}</span>
+          <span>窗口：最近 {{ contentDataHoursBack }} 小时</span>
+        </div>
+      </div>
+
+      <div class="content-data-toolbar">
+        <el-input-number v-model="contentDataHoursBack" :min="24" :max="24 * 30" :step="24" />
+        <el-button :loading="contentDataLoading" @click="loadContentData">
+          刷新内容
+        </el-button>
+        <el-button
+          v-if="contentDataDialog.market === 'A股'"
+          :loading="contentDataSyncLoading"
+          @click="handleContentDataSocialSync('native')"
+        >
+          原生社媒同步
+        </el-button>
+        <el-button
+          v-if="contentDataDialog.market === 'A股'"
+          :loading="contentDataSyncLoading"
+          @click="handleContentDataSocialSync('news_proxy')"
+        >
+          新闻回退同步
+        </el-button>
+        <el-button @click="openDeleteSyncedDataDialog(contentDataDialog.stock_code)">
+          打开数据清理
+        </el-button>
+      </div>
+
+      <el-tabs v-model="contentDataActiveTab">
+        <el-tab-pane :label="`已同步新闻 (${contentNewsItems.length})`" name="news">
+          <el-empty v-if="!contentDataLoading && contentNewsItems.length === 0" description="暂无已同步新闻" />
+          <div v-else class="content-data-list">
+            <div v-for="item in contentNewsItems" :key="item.id || `${item.title}-${item.publish_time}`" class="content-data-item">
+              <div class="content-data-item__header">
+                <div class="content-data-item__title">
+                  <a v-if="item.url" :href="item.url" target="_blank" rel="noopener">{{ item.title || '无标题' }}</a>
+                  <span v-else>{{ item.title || '无标题' }}</span>
+                </div>
+                <div class="content-data-item__time">{{ formatDateTime(item.publish_time) }}</div>
+              </div>
+              <div class="content-data-item__meta">
+                <span>{{ item.source || item.data_source || '-' }}</span>
+                <span>{{ item.category || 'news' }}</span>
+                <span>{{ item.sentiment || 'unknown' }}</span>
+              </div>
+              <div class="content-data-item__body">
+                {{ item.summary || item.content || '-' }}
+              </div>
+            </div>
+          </div>
+        </el-tab-pane>
+
+        <el-tab-pane :label="`互动问答 (${contentSocialOfficialItems.length})`" name="official">
+          <el-empty v-if="!contentDataLoading && contentSocialOfficialItems.length === 0" description="暂无已同步互动问答" />
+          <div v-else class="content-data-list">
+            <div v-for="item in contentSocialOfficialItems" :key="item.message_id" class="content-data-item">
+              <div class="content-data-item__header">
+                <div class="content-data-item__title">
+                  {{ item.message_type === 'company_answer' ? '公司回答' : '投资者提问' }}
+                </div>
+                <div class="content-data-item__time">{{ formatDateTime(item.publish_time) }}</div>
+              </div>
+              <div class="content-data-item__meta">
+                <span>{{ item.platform }}</span>
+                <span>{{ item.data_source || '-' }}</span>
+                <span>{{ item.author?.name || '-' }}</span>
+              </div>
+              <div class="content-data-item__body">
+                {{ item.content || '-' }}
+              </div>
+            </div>
+          </div>
+        </el-tab-pane>
+
+        <el-tab-pane :label="`社媒热度 (${contentSocialHeatItems.length})`" name="heat">
+          <el-empty v-if="!contentDataLoading && contentSocialHeatItems.length === 0" description="暂无已同步社媒热度" />
+          <div v-else class="content-data-list">
+            <div v-for="item in contentSocialHeatItems" :key="item.message_id" class="content-data-item">
+              <div class="content-data-item__header">
+                <div class="content-data-item__title">
+                  {{ item.message_type === 'keyword_snapshot' ? '关键词快照' : '热度快照' }}
+                </div>
+                <div class="content-data-item__time">{{ formatDateTime(item.publish_time) }}</div>
+              </div>
+              <div class="content-data-item__meta">
+                <span>{{ item.platform }}</span>
+                <span>{{ item.data_source || '-' }}</span>
+              </div>
+              <div class="content-data-item__body">
+                {{ item.content || '-' }}
+              </div>
+            </div>
+          </div>
+        </el-tab-pane>
+
+        <el-tab-pane :label="`新闻回退 (${contentSocialNewsProxyItems.length})`" name="news_proxy">
+          <el-empty v-if="!contentDataLoading && contentSocialNewsProxyItems.length === 0" description="暂无新闻回退社媒数据" />
+          <div v-else class="content-data-list">
+            <div v-for="item in contentSocialNewsProxyItems" :key="item.message_id" class="content-data-item">
+              <div class="content-data-item__header">
+                <div class="content-data-item__title">新闻代理社媒消息</div>
+                <div class="content-data-item__time">{{ formatDateTime(item.publish_time) }}</div>
+              </div>
+              <div class="content-data-item__meta">
+                <span>{{ item.platform }}</span>
+                <span>{{ item.data_source || '-' }}</span>
+              </div>
+              <div class="content-data-item__body">
+                {{ item.content || '-' }}
+              </div>
+            </div>
+          </div>
+        </el-tab-pane>
+      </el-tabs>
+    </el-dialog>
 
     <!-- 添加自选股对话框 -->
     <el-dialog
@@ -723,6 +858,13 @@
         <el-table-column label="结果摘要" min-width="240">
           <template #default="{ row }">
             <div class="history-summary">{{ row.summary || '-' }}</div>
+            <div
+              v-for="line in buildHistorySummaryDetailLines(row)"
+              :key="line"
+              class="history-detail-line"
+            >
+              {{ line }}
+            </div>
             <div v-if="row.errors?.length" class="history-error">
               {{ row.errors[0] }}
             </div>
@@ -1022,6 +1164,7 @@ import {
   Download
 } from '@element-plus/icons-vue'
 import { favoritesApi } from '@/api/favorites'
+import { newsApi } from '@/api/news'
 import { tagsApi } from '@/api/tags'
 import { stockSyncApi } from '@/api/stockSync'
 import { socialMediaApi } from '@/api/socialMedia'
@@ -1030,6 +1173,7 @@ import { inferStockMarketMetadata } from '@/utils/stockValidator'
 import { ApiClient } from '@/api/request'
 
 import type { FavoriteItem } from '@/api/favorites'
+import type { NewsItem } from '@/api/news'
 import type {
   DeleteSyncedDataType,
   SyncHistoryQueryParams,
@@ -1037,6 +1181,7 @@ import type {
   SyncedDataSummaryItem,
   SyncedDataSummaryQueryParams
 } from '@/api/stockSync'
+import type { SocialMediaMessageItem } from '@/api/socialMedia'
 import { useAuthStore } from '@/stores/auth'
 
 
@@ -1060,6 +1205,12 @@ interface SyncLinkContext {
 
 interface LinkedLookupNoticeOptions {
   showEmptyTip?: boolean
+}
+
+interface ContentDataDialogState {
+  stock_code: string
+  stock_name: string
+  market: string
 }
 
 // 响应式数据
@@ -1180,6 +1331,18 @@ const deleteSyncedDataContext = ref<SyncLinkContext>({
   source: ''
 })
 const pendingDeleteLinkedLookupTip = ref(false)
+const contentDataDialogVisible = ref(false)
+const contentDataLoading = ref(false)
+const contentDataSyncLoading = ref(false)
+const contentDataHoursBack = ref(72)
+const contentDataActiveTab = ref('news')
+const contentDataDialog = ref<ContentDataDialogState>({
+  stock_code: '',
+  stock_name: '',
+  market: ''
+})
+const contentNewsItems = ref<NewsItem[]>([])
+const contentSocialItems = ref<SocialMediaMessageItem[]>([])
 
 // 添加对话框
 const addDialogVisible = ref(false)
@@ -1292,6 +1455,24 @@ const normalizeTagList = (tags: string[]) => {
 
   return normalized
 }
+
+const contentSocialOfficialItems = computed(() =>
+  contentSocialItems.value.filter((item) =>
+    ['investor_question', 'company_answer'].includes(String(item.message_type || ''))
+  )
+)
+
+const contentSocialHeatItems = computed(() =>
+  contentSocialItems.value.filter((item) =>
+    ['heat_snapshot', 'keyword_snapshot'].includes(String(item.message_type || ''))
+  )
+)
+
+const contentSocialNewsProxyItems = computed(() =>
+  contentSocialItems.value.filter((item) =>
+    String(item.message_type || '') === 'news_sentiment_proxy' || String(item.platform || '') === 'news_proxy'
+  )
+)
 
 
 // 计算属性
@@ -1480,6 +1661,69 @@ const buildSocialSyncSummaryHtml = (symbol: string, mode: SocialSyncMode, stats:
     `<div>${platformSummary}</div>`,
     `</div>`
   ].join('')
+}
+
+const openContentDataDialog = async (row: FavoriteItem) => {
+  contentDataDialog.value = {
+    stock_code: String(row.stock_code || ''),
+    stock_name: String(row.stock_name || ''),
+    market: String(row.market || 'A股')
+  }
+  contentDataActiveTab.value = 'news'
+  contentNewsItems.value = []
+  contentSocialItems.value = []
+  contentDataDialogVisible.value = true
+  await loadContentData()
+}
+
+const loadContentData = async () => {
+  const symbol = String(contentDataDialog.value.stock_code || '').trim().toUpperCase()
+  if (!symbol) {
+    return
+  }
+
+  contentDataLoading.value = true
+  try {
+    const [newsRes, socialRes] = await Promise.all([
+      newsApi.queryStockNews(symbol, contentDataHoursBack.value, 50),
+      socialMediaApi.queryMessages({
+        symbol,
+        start_time: new Date(Date.now() - contentDataHoursBack.value * 3600 * 1000).toISOString(),
+        limit: 100
+      })
+    ])
+
+    contentNewsItems.value = Array.isArray((newsRes as any)?.data?.news)
+      ? (newsRes as any).data.news
+      : []
+    contentSocialItems.value = Array.isArray((socialRes as any)?.data?.messages)
+      ? (socialRes as any).data.messages
+      : []
+  } catch (error: any) {
+    console.error('加载内容数据失败:', error)
+    ElMessage.error(error.message || '加载内容数据失败')
+  } finally {
+    contentDataLoading.value = false
+  }
+}
+
+const handleContentDataSocialSync = async (mode: SocialSyncMode) => {
+  const symbol = String(contentDataDialog.value.stock_code || '').trim().toUpperCase()
+  if (!symbol) {
+    ElMessage.warning('缺少股票代码，无法同步社媒数据')
+    return
+  }
+
+  contentDataSyncLoading.value = true
+  try {
+    const row = {
+      stock_code: symbol
+    } as FavoriteItem
+    await runSocialMediaSync(row, mode)
+    await loadContentData()
+  } finally {
+    contentDataSyncLoading.value = false
+  }
 }
 
 const runSocialMediaSync = async (row: FavoriteItem, mode: SocialSyncMode) => {
@@ -2349,6 +2593,36 @@ const buildContextSummary = (context: SyncLinkContext) => {
 }
 
 const historyLinkedContextText = computed(() => buildContextSummary(historyLinkedContext.value))
+
+const buildHistorySummaryDetailLines = (row: SyncHistoryRecord) => {
+  const stats = row?.result?.sync_stats || {}
+  const sections = stats?.summary?.sections || {}
+  const details = stats?.summary?.details || {}
+  const lines: string[] = []
+
+  if (typeof sections.official_ir === 'number' || typeof sections.community_heat === 'number' || typeof sections.news_fallback === 'number') {
+    lines.push(
+      `分类：问答 ${sections.official_ir || 0} / 热度 ${sections.community_heat || 0} / 新闻回退 ${sections.news_fallback || 0}`
+    )
+  }
+
+  if (
+    typeof details.investor_questions === 'number' ||
+    typeof details.company_answers === 'number' ||
+    typeof details.heat_snapshots === 'number' ||
+    typeof details.keyword_snapshots === 'number'
+  ) {
+    lines.push(
+      `明细：提问 ${details.investor_questions || 0} / 回答 ${details.company_answers || 0} / 热度 ${details.heat_snapshots || 0} / 关键词 ${details.keyword_snapshots || 0}`
+    )
+  }
+
+  if (Array.isArray(stats.source_details) && stats.source_details.length > 0) {
+    lines.push(`命中来源：${formatDataSources(stats.source_details)}`)
+  }
+
+  return lines
+}
 const deleteLinkedContextText = computed(() => buildContextSummary(deleteSyncedDataContext.value))
 
 const resetHistoryLinkedContext = () => {
@@ -2876,6 +3150,85 @@ onMounted(() => {
     gap: 4px 12px;
   }
 
+  .content-data-header {
+    margin-bottom: 12px;
+  }
+
+  .content-data-header__title {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--el-text-color-primary);
+  }
+
+  .content-data-header__meta {
+    display: flex;
+    gap: 16px;
+    margin-top: 6px;
+    font-size: 12px;
+    color: var(--el-text-color-secondary);
+  }
+
+  .content-data-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 16px;
+  }
+
+  .content-data-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    max-height: 520px;
+    overflow: auto;
+    padding-right: 4px;
+  }
+
+  .content-data-item {
+    border: 1px solid var(--el-border-color-lighter);
+    border-radius: 10px;
+    padding: 12px 14px;
+    background: var(--el-fill-color-blank);
+  }
+
+  .content-data-item__header {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    align-items: flex-start;
+  }
+
+  .content-data-item__title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--el-text-color-primary);
+    line-height: 1.5;
+  }
+
+  .content-data-item__time {
+    flex-shrink: 0;
+    font-size: 12px;
+    color: var(--el-text-color-secondary);
+  }
+
+  .content-data-item__meta {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-top: 8px;
+    font-size: 12px;
+    color: var(--el-text-color-secondary);
+  }
+
+  .content-data-item__body {
+    margin-top: 10px;
+    line-height: 1.7;
+    color: var(--el-text-color-regular);
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
   .favorite-row-actions :deep(.el-button) {
     margin-left: 0;
     min-width: auto;
@@ -2910,6 +3263,13 @@ onMounted(() => {
 
   .history-summary {
     line-height: 1.5;
+  }
+
+  .history-detail-line {
+    color: var(--el-text-color-secondary);
+    font-size: 12px;
+    line-height: 1.5;
+    margin-top: 4px;
   }
 
   .history-error {
