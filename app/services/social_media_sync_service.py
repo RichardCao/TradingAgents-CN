@@ -42,6 +42,7 @@ class SocialMediaSyncResult:
     source_details: Optional[List[str]] = None
     fallback_used: bool = False
     fallback_source: Optional[str] = None
+    summary: Optional[Dict[str, Any]] = None
 
 
 def _build_news_proxy_message_id(symbol: str, news_doc: Dict[str, Any]) -> str:
@@ -483,6 +484,59 @@ def _has_heat_payload_content(value: Any) -> bool:
     return not getattr(value, "empty", True)
 
 
+def _summarize_social_messages(messages: List[Dict[str, Any]]) -> Dict[str, Any]:
+    summary = {
+        "sections": {
+            "official_ir": 0,
+            "community_heat": 0,
+            "news_fallback": 0,
+            "other": 0,
+        },
+        "details": {
+            "investor_questions": 0,
+            "company_answers": 0,
+            "heat_snapshots": 0,
+            "keyword_snapshots": 0,
+            "news_proxy_messages": 0,
+        },
+        "platforms": {},
+    }
+
+    for message in messages:
+        platform = str(message.get("platform") or "unknown").strip()
+        message_type = str(message.get("message_type") or "").strip()
+
+        if platform in {"cninfo_irm", "sse_einteractive"} or message_type in {
+            "investor_question",
+            "company_answer",
+        }:
+            summary["sections"]["official_ir"] += 1
+        elif platform in {"eastmoney_guba", "xueqiu"} or message_type in {
+            "heat_snapshot",
+            "keyword_snapshot",
+        }:
+            summary["sections"]["community_heat"] += 1
+        elif platform == "news_proxy" or message_type == "news_sentiment_proxy":
+            summary["sections"]["news_fallback"] += 1
+        else:
+            summary["sections"]["other"] += 1
+
+        if message_type == "investor_question":
+            summary["details"]["investor_questions"] += 1
+        elif message_type == "company_answer":
+            summary["details"]["company_answers"] += 1
+        elif message_type == "heat_snapshot":
+            summary["details"]["heat_snapshots"] += 1
+        elif message_type == "keyword_snapshot":
+            summary["details"]["keyword_snapshots"] += 1
+        elif message_type == "news_sentiment_proxy":
+            summary["details"]["news_proxy_messages"] += 1
+
+        summary["platforms"][platform] = summary["platforms"].get(platform, 0) + 1
+
+    return summary
+
+
 def _collect_heat_source_details(heat_payload: Dict[str, Any]) -> List[str]:
     source_map = {
         "em_latest": "stock_hot_rank_latest_em",
@@ -712,6 +766,7 @@ async def sync_social_media_from_news_proxy(
         saved_messages=saved_messages,
         failed_messages=failed_messages,
         latest_publish_time=latest_publish_time,
+        summary=_summarize_social_messages(messages),
     )
 
     if save_history and current_user:
@@ -737,6 +792,7 @@ async def sync_social_media_from_news_proxy(
                     "saved_messages": saved_messages,
                     "failed_messages": failed_messages,
                     "used_existing_social_data": False,
+                    "summary": result.summary,
                 }
             },
             started_at=started_at,
@@ -889,6 +945,7 @@ async def sync_a_share_native_social_media(
         source_details=source_details,
         fallback_used=fallback_used,
         fallback_source=fallback_source,
+        summary=_summarize_social_messages(messages),
     )
 
     if save_history and current_user:
@@ -919,6 +976,7 @@ async def sync_a_share_native_social_media(
                     "failed_messages": failed_messages,
                     "fallback_used": fallback_used,
                     "fallback_source": fallback_source,
+                    "summary": result.summary,
                 }
             },
             started_at=started_at,

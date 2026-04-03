@@ -64,6 +64,8 @@ def test_sync_social_media_from_news_proxy_generates_messages(monkeypatch):
     assert fake_service.saved_payload is not None
     assert fake_service.saved_payload[0]["platform"] == "news_proxy"
     assert fake_service.saved_payload[0]["data_source"] == "stock_news_proxy"
+    assert resolved.summary["sections"]["news_fallback"] == 1
+    assert resolved.summary["details"]["news_proxy_messages"] == 1
 
 
 def test_sync_social_media_from_news_proxy_skips_when_existing(monkeypatch):
@@ -185,6 +187,11 @@ def test_sync_a_share_native_social_media_generates_native_messages(monkeypatch)
     assert resolved.fallback_used is False
     assert "stock_irm_cninfo" in (resolved.source_details or [])
     assert "stock_hot_rank_latest_em" in (resolved.source_details or [])
+    assert resolved.summary["sections"]["official_ir"] == 2
+    assert resolved.summary["sections"]["community_heat"] == 1
+    assert resolved.summary["details"]["investor_questions"] == 1
+    assert resolved.summary["details"]["company_answers"] == 1
+    assert resolved.summary["details"]["heat_snapshots"] == 1
     assert fake_service.saved_payload is not None
     assert {item["message_type"] for item in fake_service.saved_payload} == {
         "investor_question",
@@ -321,6 +328,8 @@ def test_sync_a_share_native_social_media_succeeds_with_heat_only(monkeypatch):
     assert resolved.fallback_used is False
     assert "stock_hot_rank_latest_em" in (resolved.source_details or [])
     assert "stock_hot_follow_xq" in (resolved.source_details or [])
+    assert resolved.summary["sections"]["community_heat"] == 1
+    assert resolved.summary["details"]["heat_snapshots"] == 1
     assert fake_service.saved_payload[0]["platform"] == "eastmoney_guba"
 
 

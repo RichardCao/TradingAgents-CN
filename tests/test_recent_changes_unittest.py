@@ -1081,6 +1081,56 @@ class TestRecentChanges(unittest.TestCase):
         self.assertEqual(quotes_map["300750"]["data_source"], "sina_finance")
         provider._fetch_cn_quotes_from_sina_finance.assert_called_once_with(["300750"])
 
+    def test_akshare_provider_batch_quotes_can_disable_sina_finance_fallback(self):
+        with patch.dict(
+            "os.environ",
+            {"TRADINGAGENTS_ENABLE_SINA_FINANCE_FALLBACK": "false"},
+            clear=False,
+        ):
+            provider = self._build_akshare_provider_for_test()
+
+        class FakeAk:
+            def stock_zh_a_spot_em(self):
+                return pd.DataFrame([])
+
+            def stock_zh_a_spot(self):
+                return pd.DataFrame([])
+
+        provider.ak = FakeAk()
+        provider._fetch_cn_quotes_from_sina_finance = MagicMock(
+            return_value={"600519": {"code": "600519"}}
+        )
+
+        quotes_map = asyncio.run(provider.get_batch_stock_quotes(["600519"]))
+
+        self.assertEqual(quotes_map, {})
+        provider._fetch_cn_quotes_from_sina_finance.assert_not_called()
+
+    def test_akshare_provider_batch_quotes_respects_sina_finance_max_symbols(self):
+        with patch.dict(
+            "os.environ",
+            {"TRADINGAGENTS_SINA_FINANCE_FALLBACK_MAX_SYMBOLS": "1"},
+            clear=False,
+        ):
+            provider = self._build_akshare_provider_for_test()
+
+        class FakeAk:
+            def stock_zh_a_spot_em(self):
+                return pd.DataFrame([])
+
+            def stock_zh_a_spot(self):
+                return pd.DataFrame([])
+
+        provider.ak = FakeAk()
+        provider._fetch_cn_quotes_from_sina_finance = MagicMock(
+            return_value={"600519": {"code": "600519"}}
+        )
+
+        quotes_map = asyncio.run(provider.get_batch_stock_quotes(["600519", "300750"]))
+
+        self.assertEqual(quotes_map, {})
+        provider._fetch_cn_quotes_from_sina_finance.assert_not_called()
+
     def test_akshare_provider_single_quote_falls_back_to_sina_finance(self):
         provider = self._build_akshare_provider_for_test()
 
@@ -1117,6 +1167,28 @@ class TestRecentChanges(unittest.TestCase):
         self.assertIsNotNone(quote)
         self.assertEqual(quote["data_source"], "sina_finance")
         provider._get_stock_quotes_from_sina_finance.assert_awaited_once_with("600519")
+
+    def test_akshare_provider_single_quote_skips_sina_finance_when_disabled(self):
+        with patch.dict(
+            "os.environ",
+            {"TRADINGAGENTS_ENABLE_SINA_FINANCE_FALLBACK": "false"},
+            clear=False,
+        ):
+            provider = self._build_akshare_provider_for_test()
+
+        class FakeAk:
+            def stock_bid_ask_em(self, symbol):
+                raise RuntimeError(f"{symbol} bid/ask unavailable")
+
+        provider.ak = FakeAk()
+        provider._fetch_cn_quotes_from_sina_finance = MagicMock(
+            return_value={"600519": {"code": "600519"}}
+        )
+
+        quote = asyncio.run(provider.get_stock_quotes("600519"))
+
+        self.assertIsNone(quote)
+        provider._fetch_cn_quotes_from_sina_finance.assert_not_called()
 
     def test_hk_unified_news_tool_returns_explicit_error_when_both_sources_empty(self):
         toolkit = Toolkit(config={})

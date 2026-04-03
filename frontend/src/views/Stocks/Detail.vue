@@ -689,6 +689,38 @@ function formatSocialSyncSourceLabel(stats: any, fallbackUsed: boolean) {
   return stats?.source || 'unknown'
 }
 
+function buildSocialSyncSummaryHtml(symbol: string, mode: SocialSyncMode, stats: any) {
+  const sections = stats?.summary?.sections || {}
+  const details = stats?.summary?.details || {}
+  const platforms = stats?.summary?.platforms || {}
+  const fallbackUsed = Boolean(stats?.fallback_used && stats?.fallback_source)
+  const sourceLabel = formatSocialSyncSourceLabel(stats, fallbackUsed)
+  const modeLabel = mode === 'native' ? '原生社媒' : '新闻回退'
+  const platformSummary = Object.entries(platforms)
+    .map(([platform, count]) => `${platform}: ${count} 条`)
+    .join('<br/>') || '无'
+
+  return [
+    `<div style="line-height:1.7;">`,
+    `<div><b>${symbol}</b> ${modeLabel}同步完成</div>`,
+    `<div>来源：${sourceLabel}</div>`,
+    `<div>写入：${stats?.saved_messages || 0} 条，失败：${stats?.failed_messages || 0} 条</div>`,
+    `<div style="margin-top:8px;"><b>分类摘要</b></div>`,
+    `<div>官方互动问答：${sections.official_ir || 0} 条</div>`,
+    `<div>社区热度：${sections.community_heat || 0} 条</div>`,
+    `<div>新闻回退：${sections.news_fallback || 0} 条</div>`,
+    `<div style="margin-top:8px;"><b>明细</b></div>`,
+    `<div>投资者提问：${details.investor_questions || 0} 条</div>`,
+    `<div>公司回答：${details.company_answers || 0} 条</div>`,
+    `<div>热度快照：${details.heat_snapshots || 0} 条</div>`,
+    `<div>关键词快照：${details.keyword_snapshots || 0} 条</div>`,
+    `<div>新闻代理消息：${details.news_proxy_messages || 0} 条</div>`,
+    `<div style="margin-top:8px;"><b>平台分布</b></div>`,
+    `<div>${platformSummary}</div>`,
+    `</div>`
+  ].join('')
+}
+
 async function runSocialMediaSync(mode: SocialSyncMode) {
   if (!code.value) {
     ElMessage.warning('股票代码不能为空')
@@ -722,6 +754,14 @@ async function runSocialMediaSync(mode: SocialSyncMode) {
       const modeLabel = mode === 'native' ? '原生社媒' : '新闻回退'
       ElMessage.success(
         `股票 ${code.value} ${modeLabel}同步完成：写入 ${stats.saved_messages || 0} 条，来源 ${sourceLabel}`
+      )
+      await ElMessageBox.alert(
+        buildSocialSyncSummaryHtml(code.value, mode, stats),
+        '社媒同步摘要',
+        {
+          dangerouslyUseHTMLString: true,
+          confirmButtonText: '知道了'
+        }
       )
     } else {
       ElMessage.warning((res as any)?.message || '未获取到可用的社媒数据')

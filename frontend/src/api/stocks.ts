@@ -78,6 +78,8 @@ export interface NewsResponse {
   include_announcements: boolean
   source?: string
   items: NewsItem[]
+  sync_required?: boolean
+  sync_hint?: string | null
 }
 
 export const stocksApi = {
@@ -119,4 +121,3 @@ export const stocksApi = {
     return ApiClient.get<NewsResponse>(`/api/stocks/${symbol}/news`, { days, limit, include_announcements: includeAnnouncements })
   }
 }
-

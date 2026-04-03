@@ -641,18 +641,15 @@ async def get_news(code: str, days: int = 30, limit: int = 50, include_announcem
         result = await service.get_hk_news(normalized_code, days=days, limit=limit)
         return ok(result)
     else:
-        # A股：直接调用同步服务的查询方法（包含智能回退逻辑）
+        # A股：只读数据库，不在查询阶段触发同步
         try:
             logger.info(f"=" * 80)
             logger.info(f"📰 开始获取新闻: code={code}, normalized_code={normalized_code}, days={days}, limit={limit}")
 
-            # 直接使用 news_data 路由的查询逻辑
             from app.services.news_data_service import get_news_data_service, NewsQueryParams
             from datetime import datetime, timedelta
-            from app.worker.akshare_sync_service import get_akshare_sync_service
 
             service = await get_news_data_service()
-            sync_service = await get_akshare_sync_service()
 
             # 计算时间范围
             hours_back = days * 24
@@ -674,31 +671,15 @@ async def get_news(code: str, days: int = 30, limit: int = 50, include_announcem
             logger.info(f"📊 数据库查询结果: 返回 {len(news_list)} 条新闻")
 
             data_source = "database"
-
-            # 2. 如果数据库没有数据，调用同步服务
-            if not news_list:
-                logger.info(f"⚠️ 数据库无新闻数据，调用同步服务获取: {normalized_code}")
-                try:
-                    # 🔥 调用同步服务，传入单个股票代码列表
-                    logger.info(f"📡 步骤2: 调用同步服务...")
-                    await sync_service.sync_news_data(
-                        symbols=[normalized_code],
-                        max_news_per_stock=limit,
-                        force_update=False,
-                        favorites_only=False
-                    )
-
-                    # 重新查询
-                    logger.info(f"🔄 步骤3: 重新从数据库查询...")
-                    news_list = await service.query_news(params)
-                    logger.info(f"📊 重新查询结果: 返回 {len(news_list)} 条新闻")
-                    data_source = "realtime"
-
-                except Exception as e:
-                    logger.error(f"❌ 同步服务异常: {e}", exc_info=True)
+            sync_required = not news_list
+            sync_hint = (
+                "当前股票没有已同步新闻，请先执行新闻同步后再查看。"
+                if sync_required
+                else None
+            )
 
             # 转换为旧格式（兼容前端）
-            logger.info(f"🔄 步骤4: 转换数据格式...")
+            logger.info(f"🔄 步骤2: 转换数据格式...")
             items = []
             for news in news_list:
                 # 🔥 将 datetime 对象转换为 ISO 字符串
@@ -724,7 +705,9 @@ async def get_news(code: str, days: int = 30, limit: int = 50, include_announcem
                 "limit": limit,
                 "include_announcements": include_announcements,
                 "source": data_source,
-                "items": items
+                "items": items,
+                "sync_required": sync_required,
+                "sync_hint": sync_hint,
             }
 
             logger.info(f"📤 最终返回: source={data_source}, items_count={len(items)}")

@@ -173,6 +173,7 @@ async def sync_social_media_from_news(
                     "saved_messages": result.saved_messages,
                     "failed_messages": result.failed_messages,
                     "latest_publish_time": result.latest_publish_time,
+                    "summary": result.summary or {},
                 },
             },
             message=(
@@ -216,6 +217,7 @@ async def sync_a_share_native_social(
                     "latest_publish_time": result.latest_publish_time,
                     "fallback_used": result.fallback_used,
                     "fallback_source": result.fallback_source,
+                    "summary": result.summary or {},
                 },
             },
             message=(

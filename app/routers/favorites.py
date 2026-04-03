@@ -186,7 +186,7 @@ async def remove_favorite(
                     data_cleanup = await _delete_synced_data_for_symbol(
                         db,
                         symbol=stock_code,
-                        delete_types=["historical", "financial", "basic", "realtime_cache"],
+                        delete_types=["historical", "financial", "basic", "realtime_cache", "news", "social_media"],
                         delete_display_cache=True,
                     )
                     cleanup_result = {

@@ -26,6 +26,22 @@ export interface SocialMediaSyncResponse {
     latest_publish_time?: string | null
     fallback_used?: boolean
     fallback_source?: string | null
+    summary?: {
+      sections?: {
+        official_ir?: number
+        community_heat?: number
+        news_fallback?: number
+        other?: number
+      }
+      details?: {
+        investor_questions?: number
+        company_answers?: number
+        heat_snapshots?: number
+        keyword_snapshots?: number
+        news_proxy_messages?: number
+      }
+      platforms?: Record<string, number>
+    }
   }
 }
 

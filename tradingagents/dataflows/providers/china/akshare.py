@@ -4,6 +4,7 @@ AKShare统一数据提供器
 """
 import asyncio
 import logging
+import os
 from datetime import datetime, timedelta, timezone
 from typing import Dict, Any, List, Optional, Union
 import pandas as pd
@@ -31,9 +32,26 @@ class AKShareProvider(BaseStockDataProvider):
         self.connected = False
         self._stock_list_cache = None  # 缓存股票列表，避免重复获取
         self._cache_time = None  # 缓存时间
+        self.sina_finance_fallback_enabled = True
+        self.sina_finance_fallback_max_symbols = self.SINA_FINANCE_FALLBACK_MAX_SYMBOLS
+        self._load_sina_finance_fallback_settings()
         self._initialize_akshare()
 
     SINA_FINANCE_FALLBACK_MAX_SYMBOLS = 20
+
+    def _load_sina_finance_fallback_settings(self) -> None:
+        enabled_raw = os.getenv("TRADINGAGENTS_ENABLE_SINA_FINANCE_FALLBACK", "true").strip().lower()
+        self.sina_finance_fallback_enabled = enabled_raw not in {"0", "false", "no", "off"}
+
+        max_symbols_raw = os.getenv(
+            "TRADINGAGENTS_SINA_FINANCE_FALLBACK_MAX_SYMBOLS",
+            str(self.SINA_FINANCE_FALLBACK_MAX_SYMBOLS),
+        ).strip()
+        try:
+            max_symbols = int(max_symbols_raw)
+        except Exception:
+            max_symbols = self.SINA_FINANCE_FALLBACK_MAX_SYMBOLS
+        self.sina_finance_fallback_max_symbols = max(0, max_symbols)
     
     def _initialize_akshare(self):
         """初始化AKShare连接"""
@@ -605,7 +623,7 @@ class AKShareProvider(BaseStockDataProvider):
 
                 if spot_df is None or spot_df.empty:
                     logger.warning("⚠️ 全市场快照为空，准备检查 sina_finance 小批量兜底")
-                    if len(codes) <= self.SINA_FINANCE_FALLBACK_MAX_SYMBOLS:
+                    if self._should_use_sina_finance_fallback(len(codes)):
                         try:
                             fallback_quotes = await asyncio.to_thread(
                                 self._fetch_cn_quotes_from_sina_finance,
@@ -619,6 +637,14 @@ class AKShareProvider(BaseStockDataProvider):
                                 return fallback_quotes
                         except Exception as fallback_error:
                             logger.warning("⚠️ sina_finance 小批量兜底失败: %s", fallback_error)
+                    elif self.sina_finance_fallback_enabled:
+                        logger.info(
+                            "ℹ️ 跳过 sina_finance 批量兜底：请求股票数 %s 超过上限 %s",
+                            len(codes),
+                            self.sina_finance_fallback_max_symbols,
+                        )
+                    else:
+                        logger.info("ℹ️ 已禁用 sina_finance 兜底，跳过批量兜底")
 
                     if last_error:
                         logger.warning("⚠️ 批量源最后错误: %s", last_error)
@@ -691,7 +717,7 @@ class AKShareProvider(BaseStockDataProvider):
                         }
 
                 missing_codes = [code for code in codes if code not in quotes_map]
-                if missing_codes and len(missing_codes) <= self.SINA_FINANCE_FALLBACK_MAX_SYMBOLS:
+                if missing_codes and self._should_use_sina_finance_fallback(len(missing_codes)):
                     try:
                         fallback_quotes = await asyncio.to_thread(
                             self._fetch_cn_quotes_from_sina_finance,
@@ -707,6 +733,12 @@ class AKShareProvider(BaseStockDataProvider):
                             quotes_map.update(fallback_quotes)
                     except Exception as fallback_error:
                         logger.warning("⚠️ sina_finance 缺口补齐失败: %s", fallback_error)
+                elif missing_codes and self.sina_finance_fallback_enabled:
+                    logger.info(
+                        "ℹ️ 跳过 sina_finance 缺口补齐：缺口股票数 %s 超过上限 %s",
+                        len(missing_codes),
+                        self.sina_finance_fallback_max_symbols,
+                    )
 
                 return quotes_map
 
@@ -867,6 +899,13 @@ class AKShareProvider(BaseStockDataProvider):
             if formatted:
                 results[code] = formatted
         return results
+
+    def _should_use_sina_finance_fallback(self, symbol_count: int) -> bool:
+        if not self.sina_finance_fallback_enabled:
+            return False
+        if symbol_count <= 0:
+            return False
+        return symbol_count <= self.sina_finance_fallback_max_symbols
     
     async def get_batch_stock_quotes(self, codes: List[str]) -> Dict[str, Dict[str, Any]]:
         """
@@ -1013,6 +1052,9 @@ class AKShareProvider(BaseStockDataProvider):
 
     async def _get_stock_quotes_from_sina_finance(self, code: str) -> Optional[Dict[str, Any]]:
         """单股行情的最后兜底：独立 sina_finance provider。"""
+        if not self._should_use_sina_finance_fallback(1):
+            logger.info("ℹ️ 当前配置禁止 sina_finance 单股兜底: %s", code)
+            return None
         try:
             logger.info("🔁 单股实时行情回退到 sina_finance: %s", code)
             quotes_map = await asyncio.to_thread(self._fetch_cn_quotes_from_sina_finance, [code])
