@@ -333,5 +333,96 @@ def test_sync_a_share_native_social_media_succeeds_with_heat_only(monkeypatch):
     assert fake_service.saved_payload[0]["platform"] == "eastmoney_guba"
 
 
+def test_sync_a_share_native_social_media_aggregates_multiple_official_sources(monkeypatch):
+    fake_service = _FakeSocialService()
+
+    async def fake_has_existing_social_media_data(symbol, hours_back):
+        return {"recent_count": 0, "latest_publish_time": None}
+
+    async def fake_load_a_share_native_social_rows(symbol, max_items):
+        return {
+            "source": "stock_sns_sseinfo",
+            "rows": [
+                {
+                    "公司简称": "测试公司",
+                    "问题": "旧兼容字段，不应单独使用",
+                }
+            ],
+            "sources_tried": ["stock_sns_sseinfo", "stock_irm_cninfo"],
+            "source_results": [
+                {
+                    "source": "stock_sns_sseinfo",
+                    "rows": [
+                        {
+                            "股票代码": "600519",
+                            "公司简称": "贵州茅台",
+                            "用户名": "投资者A",
+                            "问题时间": "2026-04-01 09:00:00",
+                            "问题": "请问渠道库存情况如何？",
+                            "回答时间": "2026-04-01 11:00:00",
+                            "回答": "公司会结合经营情况稳步推进渠道管理。",
+                            "回答来源": "贵州茅台",
+                        }
+                    ],
+                },
+                {
+                    "source": "stock_irm_cninfo",
+                    "rows": [
+                        {
+                            "公司简称": "贵州茅台",
+                            "问题": "请问今年分红规划如何？",
+                            "提问者": "价值投资者",
+                            "提问时间": "2026-04-02 10:00:00",
+                            "问题编号": "q-002",
+                            "回答ID": "a-002",
+                            "回答内容": "公司将综合经营情况审慎制定分红方案。",
+                            "回答者": "贵州茅台",
+                            "更新时间": "2026-04-02 18:00:00",
+                        }
+                    ],
+                },
+            ],
+        }
+
+    async def fake_load_a_share_heat_rows(symbol):
+        return {}
+
+    async def fake_get_social_media_service():
+        return fake_service
+
+    async def fake_save_sync_history_record(**kwargs):
+        return None
+
+    monkeypatch.setattr(social_sync_service, "_has_existing_social_media_data", fake_has_existing_social_media_data)
+    monkeypatch.setattr(social_sync_service, "_load_a_share_native_social_rows", fake_load_a_share_native_social_rows)
+    monkeypatch.setattr(social_sync_service, "_load_a_share_heat_rows", fake_load_a_share_heat_rows)
+    monkeypatch.setattr(social_sync_service, "get_social_media_service", fake_get_social_media_service)
+    monkeypatch.setattr(social_sync_service, "save_sync_history_record", fake_save_sync_history_record)
+
+    import asyncio
+
+    resolved = asyncio.run(
+        social_sync_service.sync_a_share_native_social_media(
+            symbol="600519",
+            current_user={"id": "test-user"},
+            save_history=True,
+            skip_if_existing=False,
+            allow_news_fallback=False,
+        )
+    )
+
+    assert resolved.source == "a_share_native_social"
+    assert resolved.saved_messages == 4
+    assert resolved.generated_messages == 4
+    assert resolved.total_source_items == 2
+    assert resolved.fallback_used is False
+    assert resolved.source_details == ["stock_sns_sseinfo", "stock_irm_cninfo"]
+    assert resolved.summary["sections"]["official_ir"] == 4
+    assert resolved.summary["details"]["investor_questions"] == 2
+    assert resolved.summary["details"]["company_answers"] == 2
+    assert fake_service.saved_payload is not None
+    assert {item["platform"] for item in fake_service.saved_payload} == {"sse_einteractive", "cninfo_irm"}
+
+
 async def _async_result(value):
     return value

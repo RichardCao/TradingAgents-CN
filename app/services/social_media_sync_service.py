@@ -553,6 +553,23 @@ def _collect_heat_source_details(heat_payload: Dict[str, Any]) -> List[str]:
     ]
 
 
+def _deduplicate_messages(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    deduplicated: List[Dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+
+    for message in messages:
+        key = (
+            str(message.get("message_id") or "").strip(),
+            str(message.get("platform") or "").strip(),
+        )
+        if not key[0] or key in seen:
+            continue
+        seen.add(key)
+        deduplicated.append(message)
+
+    return deduplicated
+
+
 async def _fetch_native_source_rows(
     symbol: str,
     source_name: str,
@@ -579,23 +596,36 @@ async def _fetch_native_source_rows(
 
 async def _load_a_share_native_social_rows(symbol: str, max_items: int) -> Dict[str, Any]:
     sources_tried: List[str] = []
+    source_results: List[Dict[str, Any]] = []
+
     for source_name in _resolve_a_share_native_sources(symbol):
         sources_tried.append(source_name)
         try:
             rows = await _fetch_native_source_rows(symbol, source_name, max_items)
             if rows:
-                return {
-                    "source": source_name,
-                    "rows": rows,
-                    "sources_tried": sources_tried,
-                }
+                source_results.append(
+                    {
+                        "source": source_name,
+                        "rows": rows,
+                    }
+                )
         except Exception:
             continue
+
+    if source_results:
+        first_result = source_results[0]
+        return {
+            "source": first_result.get("source"),
+            "rows": first_result.get("rows") or [],
+            "sources_tried": sources_tried,
+            "source_results": source_results,
+        }
 
     return {
         "source": None,
         "rows": [],
         "sources_tried": sources_tried,
+        "source_results": [],
     }
 
 
@@ -865,24 +895,41 @@ async def sync_a_share_native_social_media(
         return result
 
     native_payload = await _load_a_share_native_social_rows(symbol, max_items)
-    native_source = native_payload.get("source")
-    rows = native_payload.get("rows") or []
+    source_results = native_payload.get("source_results") or []
+    if not source_results and (native_payload.get("source") or native_payload.get("rows")):
+        source_results = [
+            {
+                "source": native_payload.get("source"),
+                "rows": native_payload.get("rows") or [],
+            }
+        ]
 
     native_messages: List[Dict[str, Any]] = []
-    if native_source == "stock_irm_cninfo":
-        native_messages = _normalize_cninfo_rows_to_messages(symbol, rows)
-    elif native_source == "stock_sns_sseinfo":
-        native_messages = _normalize_sse_rows_to_messages(symbol, rows)
+    native_source_details: List[str] = []
+    native_total_items = 0
+    for source_result in source_results:
+        native_source = source_result.get("source")
+        rows = source_result.get("rows") or []
+        if not native_source or not rows:
+            continue
+
+        native_total_items += len(rows)
+        if native_source == "stock_irm_cninfo":
+            native_messages.extend(_normalize_cninfo_rows_to_messages(symbol, rows))
+        elif native_source == "stock_sns_sseinfo":
+            native_messages.extend(_normalize_sse_rows_to_messages(symbol, rows))
+
+        if native_source not in native_source_details:
+            native_source_details.append(native_source)
 
     heat_payload = await _load_a_share_heat_rows(symbol)
     heat_messages = _normalize_heat_rows_to_messages(symbol, heat_payload)
     heat_source_details = _collect_heat_source_details(heat_payload)
 
-    messages = native_messages + heat_messages
+    messages = _deduplicate_messages(native_messages + heat_messages)
 
     source_details: List[str] = []
-    if native_source and rows:
-        source_details.append(native_source)
+    source_details.extend(native_source_details)
     source_details.extend(
         source_name for source_name in heat_source_details if source_name not in source_details
     )
@@ -907,7 +954,7 @@ async def sync_a_share_native_social_media(
     )
     total_news = 0
     generated_messages = len(messages)
-    total_source_items = len(rows) + len(heat_messages)
+    total_source_items = native_total_items + len(heat_messages)
 
     if not messages and allow_news_fallback:
         fallback_result = await sync_social_media_from_news_proxy(
