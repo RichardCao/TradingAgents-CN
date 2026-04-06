@@ -310,8 +310,34 @@
 
       <div class="content-data-toolbar">
         <el-input-number v-model="contentDataHoursBack" :min="24" :max="24 * 30" :step="24" />
+        <el-select
+          v-model="contentDataSourceFilter"
+          placeholder="来源筛选"
+          clearable
+          style="width: 220px;"
+        >
+          <el-option
+            v-for="source in contentDataAvailableSources"
+            :key="source"
+            :label="source"
+            :value="source"
+          />
+        </el-select>
+        <el-input
+          v-model="contentDataKeyword"
+          :placeholder="contentDataKeywordPlaceholder"
+          clearable
+          style="width: 220px;"
+        >
+          <template #prefix>
+            <el-icon><Search /></el-icon>
+          </template>
+        </el-input>
         <el-button :loading="contentDataLoading" @click="loadContentData">
           刷新内容
+        </el-button>
+        <el-button @click="resetContentDataFilters">
+          清空筛选
         </el-button>
         <el-button
           v-if="contentDataDialog.market === 'A股'"
@@ -332,11 +358,42 @@
         </el-button>
       </div>
 
+      <div class="content-data-summary-grid">
+        <div class="content-data-summary-card">
+          <div class="content-data-summary-card__label">已同步新闻</div>
+          <div class="content-data-summary-card__value">{{ contentNewsItems.length }}</div>
+          <div class="content-data-summary-card__meta">
+            最近：{{ contentNewsLatestTime || '-' }}
+          </div>
+        </div>
+        <div class="content-data-summary-card">
+          <div class="content-data-summary-card__label">互动问答</div>
+          <div class="content-data-summary-card__value">{{ contentSocialOfficialItems.length }}</div>
+          <div class="content-data-summary-card__meta">
+            最近：{{ contentOfficialLatestTime || '-' }}
+          </div>
+        </div>
+        <div class="content-data-summary-card">
+          <div class="content-data-summary-card__label">社媒热度</div>
+          <div class="content-data-summary-card__value">{{ contentSocialHeatItems.length }}</div>
+          <div class="content-data-summary-card__meta">
+            最近：{{ contentHeatLatestTime || '-' }}
+          </div>
+        </div>
+        <div class="content-data-summary-card">
+          <div class="content-data-summary-card__label">新闻回退</div>
+          <div class="content-data-summary-card__value">{{ contentSocialNewsProxyItems.length }}</div>
+          <div class="content-data-summary-card__meta">
+            来源数：{{ contentDataUniqueSourceCount }}
+          </div>
+        </div>
+      </div>
+
       <el-tabs v-model="contentDataActiveTab">
-        <el-tab-pane :label="`已同步新闻 (${contentNewsItems.length})`" name="news">
-          <el-empty v-if="!contentDataLoading && contentNewsItems.length === 0" description="暂无已同步新闻" />
+        <el-tab-pane :label="`已同步新闻 (${filteredContentNewsItems.length})`" name="news">
+          <el-empty v-if="!contentDataLoading && filteredContentNewsItems.length === 0" description="暂无已同步新闻" />
           <div v-else class="content-data-list">
-            <div v-for="item in contentNewsItems" :key="item.id || `${item.title}-${item.publish_time}`" class="content-data-item">
+            <div v-for="item in filteredContentNewsItems" :key="item.id || `${item.title}-${item.publish_time}`" class="content-data-item">
               <div class="content-data-item__header">
                 <div class="content-data-item__title">
                   <a v-if="item.url" :href="item.url" target="_blank" rel="noopener">{{ item.title || '无标题' }}</a>
@@ -356,10 +413,10 @@
           </div>
         </el-tab-pane>
 
-        <el-tab-pane :label="`互动问答 (${contentSocialOfficialItems.length})`" name="official">
-          <el-empty v-if="!contentDataLoading && contentSocialOfficialItems.length === 0" description="暂无已同步互动问答" />
+        <el-tab-pane :label="`互动问答 (${filteredContentSocialOfficialItems.length})`" name="official">
+          <el-empty v-if="!contentDataLoading && filteredContentSocialOfficialItems.length === 0" description="暂无已同步互动问答" />
           <div v-else class="content-data-list">
-            <div v-for="item in contentSocialOfficialItems" :key="item.message_id" class="content-data-item">
+            <div v-for="item in filteredContentSocialOfficialItems" :key="item.message_id" class="content-data-item">
               <div class="content-data-item__header">
                 <div class="content-data-item__title">
                   {{ item.message_type === 'company_answer' ? '公司回答' : '投资者提问' }}
@@ -378,10 +435,10 @@
           </div>
         </el-tab-pane>
 
-        <el-tab-pane :label="`社媒热度 (${contentSocialHeatItems.length})`" name="heat">
-          <el-empty v-if="!contentDataLoading && contentSocialHeatItems.length === 0" description="暂无已同步社媒热度" />
+        <el-tab-pane :label="`社媒热度 (${filteredContentSocialHeatItems.length})`" name="heat">
+          <el-empty v-if="!contentDataLoading && filteredContentSocialHeatItems.length === 0" description="暂无已同步社媒热度" />
           <div v-else class="content-data-list">
-            <div v-for="item in contentSocialHeatItems" :key="item.message_id" class="content-data-item">
+            <div v-for="item in filteredContentSocialHeatItems" :key="item.message_id" class="content-data-item">
               <div class="content-data-item__header">
                 <div class="content-data-item__title">
                   {{ item.message_type === 'keyword_snapshot' ? '关键词快照' : '热度快照' }}
@@ -399,10 +456,10 @@
           </div>
         </el-tab-pane>
 
-        <el-tab-pane :label="`新闻回退 (${contentSocialNewsProxyItems.length})`" name="news_proxy">
-          <el-empty v-if="!contentDataLoading && contentSocialNewsProxyItems.length === 0" description="暂无新闻回退社媒数据" />
+        <el-tab-pane :label="`新闻回退 (${filteredContentSocialNewsProxyItems.length})`" name="news_proxy">
+          <el-empty v-if="!contentDataLoading && filteredContentSocialNewsProxyItems.length === 0" description="暂无新闻回退社媒数据" />
           <div v-else class="content-data-list">
-            <div v-for="item in contentSocialNewsProxyItems" :key="item.message_id" class="content-data-item">
+            <div v-for="item in filteredContentSocialNewsProxyItems" :key="item.message_id" class="content-data-item">
               <div class="content-data-item__header">
                 <div class="content-data-item__title">新闻代理社媒消息</div>
                 <div class="content-data-item__time">{{ formatDateTime(item.publish_time) }}</div>
@@ -1336,6 +1393,8 @@ const contentDataLoading = ref(false)
 const contentDataSyncLoading = ref(false)
 const contentDataHoursBack = ref(72)
 const contentDataActiveTab = ref('news')
+const contentDataSourceFilter = ref('')
+const contentDataKeyword = ref('')
 const contentDataDialog = ref<ContentDataDialogState>({
   stock_code: '',
   stock_name: '',
@@ -1472,6 +1531,122 @@ const contentSocialNewsProxyItems = computed(() =>
   contentSocialItems.value.filter((item) =>
     String(item.message_type || '') === 'news_sentiment_proxy' || String(item.platform || '') === 'news_proxy'
   )
+)
+
+const contentDataKeywordPlaceholder = computed(() => {
+  if (contentDataActiveTab.value === 'news') {
+    return '筛选标题、摘要或来源'
+  }
+  return '筛选内容、作者或来源'
+})
+
+const normalizeContentSearchText = (value: unknown) => String(value || '').trim().toLowerCase()
+
+const matchesContentFilters = (
+  item: Record<string, any>,
+  fields: string[],
+  sourceValue?: string
+) => {
+  if (contentDataSourceFilter.value && String(sourceValue || '').trim() !== contentDataSourceFilter.value) {
+    return false
+  }
+
+  const keyword = normalizeContentSearchText(contentDataKeyword.value)
+  if (!keyword) {
+    return true
+  }
+
+  return fields.some((field) => normalizeContentSearchText(item[field]).includes(keyword))
+}
+
+const filteredContentNewsItems = computed(() =>
+  contentNewsItems.value.filter((item) =>
+    matchesContentFilters(
+      item as Record<string, any>,
+      ['title', 'summary', 'content', 'source', 'data_source'],
+      item.source || item.data_source
+    )
+  )
+)
+
+const filterSocialItems = (items: SocialMediaMessageItem[]) =>
+  items.filter((item) =>
+    matchesContentFilters(
+      {
+        ...item,
+        author_name: item.author?.name || ''
+      },
+      ['content', 'platform', 'data_source', 'author_name'],
+      item.data_source || item.platform
+    )
+  )
+
+const filteredContentSocialOfficialItems = computed(() =>
+  filterSocialItems(contentSocialOfficialItems.value)
+)
+
+const filteredContentSocialHeatItems = computed(() =>
+  filterSocialItems(contentSocialHeatItems.value)
+)
+
+const filteredContentSocialNewsProxyItems = computed(() =>
+  filterSocialItems(contentSocialNewsProxyItems.value)
+)
+
+const getContentSourceOptions = (items: Array<Record<string, any>>, fields: string[]) =>
+  Array.from(
+    new Set(
+      items
+        .flatMap((item) => fields.map((field) => String(item[field] || '').trim()))
+        .filter(Boolean)
+    )
+  ).sort()
+
+const contentDataAvailableSources = computed(() => {
+  if (contentDataActiveTab.value === 'news') {
+    return getContentSourceOptions(contentNewsItems.value as Array<Record<string, any>>, ['source', 'data_source'])
+  }
+  if (contentDataActiveTab.value === 'official') {
+    return getContentSourceOptions(contentSocialOfficialItems.value as Array<Record<string, any>>, ['data_source', 'platform'])
+  }
+  if (contentDataActiveTab.value === 'heat') {
+    return getContentSourceOptions(contentSocialHeatItems.value as Array<Record<string, any>>, ['data_source', 'platform'])
+  }
+  return getContentSourceOptions(contentSocialNewsProxyItems.value as Array<Record<string, any>>, ['data_source', 'platform'])
+})
+
+const getLatestContentTime = (items: Array<{ publish_time?: string }>) => {
+  const validTimes = items
+    .map((item) => item.publish_time)
+    .filter((value): value is string => Boolean(value))
+    .map((value) => new Date(value))
+    .filter((date) => !Number.isNaN(date.getTime()))
+    .sort((a, b) => b.getTime() - a.getTime())
+
+  return validTimes.length > 0 ? formatDateTime(validTimes[0].toISOString()) : ''
+}
+
+const contentNewsLatestTime = computed(() => getLatestContentTime(contentNewsItems.value))
+const contentOfficialLatestTime = computed(() => getLatestContentTime(contentSocialOfficialItems.value))
+const contentHeatLatestTime = computed(() => getLatestContentTime(contentSocialHeatItems.value))
+const contentDataUniqueSourceCount = computed(() =>
+  new Set([
+    ...getContentSourceOptions(contentNewsItems.value as Array<Record<string, any>>, ['source', 'data_source']),
+    ...getContentSourceOptions(contentSocialItems.value as Array<Record<string, any>>, ['data_source', 'platform'])
+  ]).size
+)
+
+watch(
+  [contentDataActiveTab, contentDataAvailableSources],
+  () => {
+    if (
+      contentDataSourceFilter.value &&
+      !contentDataAvailableSources.value.includes(contentDataSourceFilter.value)
+    ) {
+      contentDataSourceFilter.value = ''
+    }
+  },
+  { deep: true }
 )
 
 
@@ -1663,6 +1838,11 @@ const buildSocialSyncSummaryHtml = (symbol: string, mode: SocialSyncMode, stats:
   ].join('')
 }
 
+const resetContentDataFilters = () => {
+  contentDataSourceFilter.value = ''
+  contentDataKeyword.value = ''
+}
+
 const openContentDataDialog = async (row: FavoriteItem) => {
   contentDataDialog.value = {
     stock_code: String(row.stock_code || ''),
@@ -1670,6 +1850,7 @@ const openContentDataDialog = async (row: FavoriteItem) => {
     market: String(row.market || 'A股')
   }
   contentDataActiveTab.value = 'news'
+  resetContentDataFilters()
   contentNewsItems.value = []
   contentSocialItems.value = []
   contentDataDialogVisible.value = true
@@ -3176,6 +3357,39 @@ onMounted(() => {
     margin-bottom: 16px;
   }
 
+  .content-data-summary-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+
+  .content-data-summary-card {
+    border: 1px solid var(--el-border-color-lighter);
+    border-radius: 10px;
+    padding: 12px 14px;
+    background: linear-gradient(180deg, var(--el-fill-color-light) 0%, var(--el-fill-color-blank) 100%);
+  }
+
+  .content-data-summary-card__label {
+    font-size: 12px;
+    color: var(--el-text-color-secondary);
+  }
+
+  .content-data-summary-card__value {
+    margin-top: 6px;
+    font-size: 24px;
+    font-weight: 700;
+    color: var(--el-text-color-primary);
+    line-height: 1.2;
+  }
+
+  .content-data-summary-card__meta {
+    margin-top: 8px;
+    font-size: 12px;
+    color: var(--el-text-color-secondary);
+  }
+
   .content-data-list {
     display: flex;
     flex-direction: column;
@@ -3270,6 +3484,12 @@ onMounted(() => {
     font-size: 12px;
     line-height: 1.5;
     margin-top: 4px;
+  }
+
+  @media (max-width: 960px) {
+    .content-data-summary-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
   }
 
   .history-error {
