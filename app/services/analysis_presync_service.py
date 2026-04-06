@@ -85,6 +85,7 @@ async def _check_existing_social_media_data(
     *,
     symbol: str,
     analysis_date: str,
+    require_native: bool = False,
 ) -> Dict[str, Any]:
     db = get_mongo_db()
     end_dt = datetime.strptime(analysis_date, "%Y-%m-%d")
@@ -97,12 +98,59 @@ async def _check_existing_social_media_data(
     }
     recent_count = await db.social_media_messages.count_documents(recent_query)
 
+    native_data_sources = {
+        "stock_irm_cninfo",
+        "stock_sns_sseinfo",
+        "stock_hot_rank_latest_em",
+        "stock_hot_rank_detail_realtime_em",
+        "stock_hot_keyword_em",
+        "stock_hot_follow_xq",
+        "stock_hot_tweet_xq",
+        "stock_hot_deal_xq",
+    }
+    native_recent_query = {
+        **recent_query,
+        "data_source": {"$in": sorted(native_data_sources)},
+    }
+    native_recent_count = await db.social_media_messages.count_documents(native_recent_query)
+
     latest_doc = await db.social_media_messages.find_one(
         {"symbol": symbol},
         sort=[("publish_time", -1), ("updated_at", -1)],
     )
 
-    if recent_count > 0:
+    latest_native_doc = await db.social_media_messages.find_one(
+        {
+            "symbol": symbol,
+            "data_source": {"$in": sorted(native_data_sources)},
+        },
+        sort=[("publish_time", -1), ("updated_at", -1)],
+    )
+
+    if require_native:
+        if native_recent_count > 0:
+            return {
+                "success": True,
+                "message": f"已找到最近 7 天内的原生社媒数据，共 {native_recent_count} 条",
+                "data": {
+                    "recent_count": recent_count,
+                    "native_recent_count": native_recent_count,
+                    "latest_publish_time": latest_native_doc.get("publish_time") if latest_native_doc else None,
+                },
+            }
+
+        if latest_native_doc:
+            return {
+                "success": True,
+                "message": "最近 7 天内无原生社媒数据，已回退到历史已同步原生社媒数据",
+                "data": {
+                    "recent_count": recent_count,
+                    "native_recent_count": 0,
+                    "latest_publish_time": latest_native_doc.get("publish_time"),
+                },
+            }
+
+    if recent_count > 0 and not require_native:
         return {
             "success": True,
             "message": f"已找到最近 7 天内的社媒数据，共 {recent_count} 条",
@@ -112,7 +160,7 @@ async def _check_existing_social_media_data(
             },
         }
 
-    if latest_doc:
+    if latest_doc and not require_native:
         return {
             "success": True,
             "message": "最近 7 天内无社媒数据，已回退到历史已同步数据",
@@ -124,9 +172,14 @@ async def _check_existing_social_media_data(
 
     return {
         "success": False,
-        "message": "未找到已同步社媒数据，请先导入或保存社媒消息后再分析",
+        "message": (
+            "未找到已同步原生社媒数据，请先同步 A 股原生社媒数据后再分析"
+            if require_native
+            else "未找到已同步社媒数据，请先导入或保存社媒消息后再分析"
+        ),
         "data": {
             "recent_count": 0,
+            "native_recent_count": 0,
             "latest_publish_time": None,
         },
     }
@@ -204,7 +257,11 @@ async def run_analysis_pre_sync(
             summary["overall_success"] = False
 
     if "social" in analysts:
-        social_check = await _check_existing_social_media_data(symbol=symbol, analysis_date=analysis_date)
+        social_check = await _check_existing_social_media_data(
+            symbol=symbol,
+            analysis_date=analysis_date,
+            require_native=(market_type == "A股"),
+        )
         if not social_check.get("success") and market_type == "A股":
             social_sync_result = await sync_a_share_native_social_media(
                 symbol=symbol,

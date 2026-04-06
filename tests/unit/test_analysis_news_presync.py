@@ -89,7 +89,7 @@ def test_run_analysis_pre_sync_marks_social_media_missing(monkeypatch):
             "data": {"overall_success": True},
         }
 
-    async def fake_check_existing_social_media_data(symbol, analysis_date):
+    async def fake_check_existing_social_media_data(symbol, analysis_date, require_native=False):
         return {
             "success": False,
             "message": "未找到已同步社媒数据，请先导入或保存社媒消息后再分析",
@@ -138,6 +138,42 @@ def test_run_analysis_pre_sync_marks_social_media_missing(monkeypatch):
     assert summary["overall_success"] is False
 
 
+def test_check_existing_social_media_data_requires_native_for_a_share(monkeypatch):
+    class _FakeCollection:
+        async def count_documents(self, query):
+            if query.get("data_source", {}).get("$in"):
+                return 0
+            return 2
+
+        async def find_one(self, query, sort=None):
+            if query.get("data_source", {}).get("$in"):
+                return None
+            return {
+                "symbol": "600519",
+                "platform": "news_proxy",
+                "data_source": "stock_news_proxy",
+                "publish_time": "2026-04-03T09:00:00",
+            }
+
+    class _FakeDB:
+        social_media_messages = _FakeCollection()
+
+    monkeypatch.setattr(analysis_presync_service, "get_mongo_db", lambda: _FakeDB())
+
+    result = asyncio.run(
+        analysis_presync_service._check_existing_social_media_data(
+            symbol="600519",
+            analysis_date="2026-04-03",
+            require_native=True,
+        )
+    )
+
+    assert result["success"] is False
+    assert "原生社媒" in result["message"]
+    assert result["data"]["recent_count"] == 0
+    assert result["data"]["native_recent_count"] == 0
+
+
 def test_run_analysis_pre_sync_uses_a_share_native_social_sync(monkeypatch):
     async def fake_sync_single_stock(request, background_tasks, current_user):
         return {
@@ -146,7 +182,7 @@ def test_run_analysis_pre_sync_uses_a_share_native_social_sync(monkeypatch):
             "data": {"overall_success": True},
         }
 
-    async def fake_check_existing_social_media_data(symbol, analysis_date):
+    async def fake_check_existing_social_media_data(symbol, analysis_date, require_native=False):
         return {
             "success": False,
             "message": "未找到已同步社媒数据",
@@ -209,7 +245,7 @@ def test_run_analysis_pre_sync_uses_native_social_without_news_fallback(monkeypa
             "data": {"overall_success": True},
         }
 
-    async def fake_check_existing_social_media_data(symbol, analysis_date):
+    async def fake_check_existing_social_media_data(symbol, analysis_date, require_native=False):
         return {
             "success": False,
             "message": "未找到已同步社媒数据",
