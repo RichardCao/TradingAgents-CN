@@ -48,6 +48,59 @@
           <div class="content-section">
             <SyncControl @sync-completed="handleSyncCompleted" />
           </div>
+
+          <!-- A股内容同步 -->
+          <div class="content-section">
+            <el-card class="content-sync-card" shadow="hover">
+              <template #header>
+                <div class="card-header">
+                  <el-icon class="header-icon"><Operation /></el-icon>
+                  <span class="header-title">A股内容同步</span>
+                </div>
+              </template>
+
+              <div class="content-sync-body">
+                <p class="content-sync-description">
+                  手动触发单只 A 股的原生社媒同步或新闻回退同步，结果会写入内容数据与同步记录。
+                </p>
+
+                <el-form :model="contentSyncForm" label-width="96px">
+                  <el-form-item label="股票代码">
+                    <el-input
+                      v-model="contentSyncForm.symbol"
+                      clearable
+                      placeholder="请输入 6 位 A 股代码，如 600519"
+                      @keyup.enter="runContentSync('native')"
+                    />
+                  </el-form-item>
+                </el-form>
+
+                <div class="content-sync-actions">
+                  <el-button
+                    type="primary"
+                    :loading="contentSyncLoading && contentSyncMode === 'native'"
+                    @click="runContentSync('native')"
+                  >
+                    原生社媒同步
+                  </el-button>
+                  <el-button
+                    :loading="contentSyncLoading && contentSyncMode === 'news_proxy'"
+                    @click="runContentSync('news_proxy')"
+                  >
+                    新闻回退同步
+                  </el-button>
+                </div>
+
+                <el-alert
+                  class="content-sync-alert"
+                  type="info"
+                  :closable="false"
+                  show-icon
+                  title="原生社媒同步优先抓取互动问答与热度信号；新闻回退同步会把已同步新闻转换为社媒快照。"
+                />
+              </div>
+            </el-card>
+          </div>
           
           <!-- 同步历史 -->
           <div class="content-section">
@@ -121,23 +174,120 @@
 
 <script setup lang="ts">
 import { ref } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   Connection,
   Operation,
   Download
 } from '@element-plus/icons-vue'
 import { testDataSources, type DataSourceTestResult } from '@/api/sync'
+import { socialMediaApi } from '@/api/socialMedia'
 import DataSourceStatus from '@/components/Sync/DataSourceStatus.vue'
 import SyncControl from '@/components/Sync/SyncControl.vue'
 import SyncRecommendations from '@/components/Sync/SyncRecommendations.vue'
 import SyncHistory from '@/components/Sync/SyncHistory.vue'
+
+type ContentSyncMode = 'native' | 'news_proxy'
 
 // 响应式数据
 const testing = ref(false)
 const testDialogVisible = ref(false)
 const testResults = ref<DataSourceTestResult[] | null>(null)
 const dataSourceStatusRef = ref()
+const contentSyncLoading = ref(false)
+const contentSyncMode = ref<ContentSyncMode>('native')
+const contentSyncForm = ref({
+  symbol: ''
+})
+
+const normalizeAShareSymbol = (value: string) => {
+  const symbol = String(value || '').trim().toUpperCase()
+  return /^\d{6}$/.test(symbol) ? symbol : ''
+}
+
+const buildContentSyncSummaryHtml = (symbol: string, mode: ContentSyncMode, stats: any) => {
+  const summary = stats?.summary || {}
+  const sections = summary.sections || {}
+  const details = summary.details || {}
+  const sourceDetails = Array.isArray(stats?.source_details)
+    ? stats.source_details.filter((item: string) => String(item || '').trim())
+    : []
+  const sourceLabel = sourceDetails.length > 0
+    ? sourceDetails.join(' + ')
+    : (stats?.source || (mode === 'native' ? 'a_share_native' : 'news_proxy'))
+  const modeLabel = mode === 'native' ? '原生社媒' : '新闻回退'
+
+  return [
+    `<div style="line-height:1.7;">`,
+    `<div><b>${symbol}</b> ${modeLabel}同步完成</div>`,
+    `<div>来源：${sourceLabel}</div>`,
+    `<div>写入：${stats?.saved_messages || 0} 条，失败：${stats?.failed_messages || 0} 条</div>`,
+    `<div style="margin-top:8px;"><b>分类摘要</b></div>`,
+    `<div>官方互动问答：${sections.official_ir || 0} 条</div>`,
+    `<div>社区热度：${sections.community_heat || 0} 条</div>`,
+    `<div>新闻回退：${sections.news_fallback || 0} 条</div>`,
+    `<div style="margin-top:8px;"><b>明细</b></div>`,
+    `<div>投资者提问：${details.investor_questions || 0} 条</div>`,
+    `<div>公司回答：${details.company_answers || 0} 条</div>`,
+    `<div>热度快照：${details.heat_snapshots || 0} 条</div>`,
+    `<div>关键词快照：${details.keyword_snapshots || 0} 条</div>`,
+    `<div>新闻代理消息：${details.news_proxy_messages || 0} 条</div>`,
+    `</div>`
+  ].join('')
+}
+
+const runContentSync = async (mode: ContentSyncMode) => {
+  const symbol = normalizeAShareSymbol(contentSyncForm.value.symbol)
+  if (!symbol) {
+    ElMessage.warning('请输入 6 位 A 股代码')
+    return
+  }
+
+  contentSyncLoading.value = true
+  contentSyncMode.value = mode
+
+  try {
+    const response = mode === 'native'
+      ? await socialMediaApi.syncAShareNative({
+        symbol,
+        days_back: 30,
+        max_items: 40,
+        allow_news_fallback: false
+      })
+      : await socialMediaApi.syncFromNews({
+        symbol,
+        hours_back: 72,
+        max_items: 30
+      })
+
+    if (response.success === false) {
+      throw new Error(response.message || '社媒同步失败')
+    }
+
+    const stats = response.data?.sync_stats || {}
+    const savedMessages = Number(stats.saved_messages || 0)
+    if (savedMessages <= 0) {
+      ElMessage.warning(response.message || '未获取到可用内容数据')
+      return
+    }
+
+    const modeLabel = mode === 'native' ? '原生社媒' : '新闻回退'
+    ElMessage.success(`${symbol} ${modeLabel}同步完成，写入 ${savedMessages} 条`)
+    await ElMessageBox.alert(
+      buildContentSyncSummaryHtml(symbol, mode, stats),
+      '内容同步摘要',
+      {
+        dangerouslyUseHTMLString: true,
+        confirmButtonText: '知道了'
+      }
+    )
+  } catch (err: any) {
+    console.error('A股内容同步失败:', err)
+    ElMessage.error(err.message || 'A股内容同步失败')
+  } finally {
+    contentSyncLoading.value = false
+  }
+}
 
 // 运行全面测试
 const runFullTest = async () => {
@@ -259,6 +409,30 @@ const handleSyncCompleted = (status: string) => {
         margin-bottom: 0;
       }
     }
+
+    .content-sync-card {
+      .content-sync-body {
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+      }
+
+      .content-sync-description {
+        margin: 0;
+        color: var(--el-text-color-regular);
+        line-height: 1.6;
+      }
+
+      .content-sync-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+      }
+
+      .content-sync-alert {
+        margin-top: 4px;
+      }
+    }
   }
 
   .test-results-dialog {
@@ -349,6 +523,14 @@ const handleSyncCompleted = (status: string) => {
           .el-button {
             width: 100%;
           }
+        }
+      }
+    }
+
+    .content-sync-card {
+      .content-sync-actions {
+        .el-button {
+          width: 100%;
         }
       }
     }

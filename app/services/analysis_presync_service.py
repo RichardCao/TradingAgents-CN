@@ -18,7 +18,6 @@ from app.routers.news_data import sync_single_stock_news
 from app.routers.stock_sync import SingleStockSyncRequest, sync_single_stock
 from app.services.social_media_sync_service import (
     sync_a_share_native_social_media,
-    sync_social_media_from_news_proxy,
 )
 
 

@@ -17,6 +17,7 @@ from app.services.favorites_service import (
 )
 from app.services.foreign_stock_service import ForeignStockService
 from app.services.memory_state_manager import TaskState, TaskStatus
+from app.services.quotes_service import QuotesService
 from app.services.stock_data_service import StockDataService
 from app.services.tags_service import TagsService
 from app.services import simple_analysis_service
@@ -178,6 +179,66 @@ class TestRecentChanges(unittest.TestCase):
         self.assertIn("09992", keys)
         self.assertIn("9992", keys)
         self.assertIn("300750", keys)
+
+    def test_quotes_service_uses_sina_finance_for_small_missing_subset(self):
+        service = QuotesService()
+        service._fetch_sina_finance_quotes = MagicMock(
+            return_value={
+                "300750": {
+                    "close": 221.5,
+                    "pct_chg": 2.31,
+                    "amount": 123456789.0,
+                    "trade_date": "2026-04-07",
+                    "updated_at": "2026-04-07T10:15:00+08:00",
+                    "data_source": "sina_finance",
+                }
+            }
+        )
+
+        fake_akshare = SimpleNamespace(
+            stock_zh_a_spot_em=lambda: pd.DataFrame(
+                [
+                    {
+                        "代码": "600519",
+                        "最新价": 1688.0,
+                        "涨跌幅": 1.08,
+                        "成交额": 678900000.0,
+                    }
+                ]
+            )
+        )
+
+        with patch.dict("sys.modules", {"akshare": fake_akshare}):
+            quotes = service._fetch_spot_akshare(["600519", "300750"])
+
+        self.assertEqual(quotes["600519"]["data_source"], "akshare_eastmoney")
+        self.assertEqual(quotes["300750"]["data_source"], "sina_finance")
+        service._fetch_sina_finance_quotes.assert_called_once_with(["300750"])
+
+    def test_quotes_service_falls_back_to_sina_finance_when_akshare_empty(self):
+        service = QuotesService()
+        service._fetch_sina_finance_quotes = MagicMock(
+            return_value={
+                "600519": {
+                    "close": 1688.0,
+                    "pct_chg": 1.08,
+                    "amount": 678900000.0,
+                    "trade_date": "2026-04-07",
+                    "updated_at": "2026-04-07T10:16:00+08:00",
+                    "data_source": "sina_finance",
+                }
+            }
+        )
+
+        fake_akshare = SimpleNamespace(
+            stock_zh_a_spot_em=lambda: pd.DataFrame()
+        )
+
+        with patch.dict("sys.modules", {"akshare": fake_akshare}):
+            quotes = service._fetch_spot_akshare(["600519"])
+
+        self.assertEqual(quotes["600519"]["data_source"], "sina_finance")
+        service._fetch_sina_finance_quotes.assert_called_once_with(["600519"])
 
     def test_stock_utils_returns_qualified_ticker_metadata(self):
         a_share = StockUtils.get_market_info("300750")

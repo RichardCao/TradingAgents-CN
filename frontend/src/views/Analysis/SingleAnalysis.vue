@@ -126,9 +126,8 @@
                     v-for="analyst in ANALYSTS"
                     :key="analyst.id"
                     class="analyst-card"
-                    :class="{ 
-                      active: analysisForm.selectedAnalysts.includes(analyst.name),
-                      disabled: analyst.name === '社媒分析师' && analysisForm.market === 'A股'
+                    :class="{
+                      active: analysisForm.selectedAnalysts.includes(analyst.name)
                     }"
                     @click="toggleAnalyst(analyst.name)"
                   >
@@ -152,11 +151,15 @@
                 <!-- A股提示 -->
                 <el-alert
                   v-if="analysisForm.market === 'A股'"
-                  title="A股市场暂不支持社媒分析（国内数据源限制）"
+                  title="A股社媒分析已接入分析前预同步"
                   type="info"
                   :closable="false"
                   style="margin-top: 12px"
-                />
+                >
+                  <template #default>
+                    选择“社媒分析师”后，系统会在分析前优先检查并补齐 A 股原生社媒数据；分析执行阶段只读取已同步数据。
+                  </template>
+                </el-alert>
               </div>
 
 
@@ -1037,10 +1040,6 @@ const fetchStockInfo = () => {
 
 // 切换分析师
 const toggleAnalyst = (analystName: string) => {
-  if (analystName === '社媒分析师' && analysisForm.market === 'A股') {
-    return
-  }
-
   const index = analysisForm.selectedAnalysts.indexOf(analystName)
   if (index > -1) {
     analysisForm.selectedAnalysts.splice(index, 1)
