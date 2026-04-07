@@ -1279,6 +1279,7 @@ class ForeignStockService:
         # 3. 按优先级尝试各个数据源
         news_data = None
         data_source = None
+        source_attempts: List[Dict[str, Any]] = []
 
         # 数据源名称映射
         source_handlers = {
@@ -1309,11 +1310,27 @@ class ForeignStockService:
                 import asyncio
                 news_data = await asyncio.to_thread(handler_func, code, days, limit)
                 data_source = handler_name
+                source_attempts.append(
+                    {
+                        "source": handler_name,
+                        "success": bool(news_data),
+                        "item_count": len(news_data or []),
+                        "error": None,
+                    }
+                )
 
                 if news_data:
                     logger.info(f"✅ {data_source}获取港股新闻成功: {code}, 返回 {len(news_data)} 条")
                     break
             except Exception as e:
+                source_attempts.append(
+                    {
+                        "source": handler_name,
+                        "success": False,
+                        "item_count": 0,
+                        "error": str(e),
+                    }
+                )
                 logger.warning(f"⚠️ {source_name}获取新闻失败: {e}")
                 continue
 
@@ -1328,7 +1345,8 @@ class ForeignStockService:
             'days': days,
             'limit': limit,
             'source': data_source,
-            'items': news_data
+            'items': news_data,
+            'source_attempts': source_attempts,
         }
 
         # 5. 缓存数据

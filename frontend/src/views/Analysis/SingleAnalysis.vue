@@ -1483,9 +1483,9 @@ const normalizeDisplayReportContent = (content: string) => {
     })
   })
 
-  normalized = normalized.replace(/^\s*[0-9一二三]+[\)\.、：:\-）]\s*(aggressive(?:\s+analyst|\s+risk\s+assessment)?|risky(?:\s+analyst)?)\s*$/gim, '### 激进风险评估')
-  normalized = normalized.replace(/^\s*[0-9一二三]+[\)\.、：:\-）]\s*(conservative(?:\s+analyst|\s+risk\s+assessment)?|safe(?:\s+analyst)?)\s*$/gim, '### 保守风险评估')
-  normalized = normalized.replace(/^\s*[0-9一二三]+[\)\.、：:\-）]\s*(neutral(?:\s+analyst|\s+risk\s+assessment)?)\s*$/gim, '### 中性风险评估')
+  normalized = normalized.replace(/^\s*[0-9一二三]+[).、：:\-）]\s*(aggressive(?:\s+analyst|\s+risk\s+assessment)?|risky(?:\s+analyst)?)\s*$/gim, '### 激进风险评估')
+  normalized = normalized.replace(/^\s*[0-9一二三]+[).、：:\-）]\s*(conservative(?:\s+analyst|\s+risk\s+assessment)?|safe(?:\s+analyst)?)\s*$/gim, '### 保守风险评估')
+  normalized = normalized.replace(/^\s*[0-9一二三]+[).、：:\-）]\s*(neutral(?:\s+analyst|\s+risk\s+assessment)?)\s*$/gim, '### 中性风险评估')
 
   return normalized
 }

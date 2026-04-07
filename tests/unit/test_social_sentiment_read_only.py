@@ -55,6 +55,7 @@ def test_social_sentiment_reads_synced_messages(monkeypatch):
             "symbol": "600519",
             "platform": "cninfo_irm",
             "message_type": "company_answer",
+            "data_source": "stock_irm_cninfo",
             "content": "公司表示今年会继续重视股东回报。",
             "publish_time": datetime(2026, 4, 2, 10, 30),
             "sentiment": "positive",
@@ -64,6 +65,7 @@ def test_social_sentiment_reads_synced_messages(monkeypatch):
             "symbol": "600519",
             "platform": "eastmoney_guba",
             "message_type": "heat_snapshot",
+            "data_source": "stock_hot_rank_latest_em",
             "content": "东方财富股吧热度快照：排名=3；热度=88。",
             "publish_time": datetime(2026, 4, 2, 9, 15),
             "sentiment": "neutral",
@@ -73,6 +75,7 @@ def test_social_sentiment_reads_synced_messages(monkeypatch):
             "symbol": "600519",
             "platform": "news_proxy",
             "message_type": "news_sentiment_proxy",
+            "data_source": "stock_news_proxy",
             "content": "券商认为公司高端产品景气度仍在延续。",
             "publish_time": datetime(2026, 4, 1, 16, 0),
             "sentiment": "positive",
@@ -82,6 +85,7 @@ def test_social_sentiment_reads_synced_messages(monkeypatch):
             "symbol": "600519",
             "platform": "xueqiu",
             "message_type": "heat_snapshot",
+            "data_source": "stock_hot_tweet_xq",
             "content": "也有部分观点担心估值偏高，短线波动会加大。",
             "publish_time": datetime(2026, 4, 1, 14, 0),
             "sentiment": "neutral",
@@ -111,12 +115,47 @@ def test_social_sentiment_reads_synced_messages(monkeypatch):
     assert "eastmoney_guba 1条" in result
     assert "news_proxy 1条" in result
     assert "xueqiu 1条" in result
+    assert "来源分布" in result
+    assert "stock_irm_cninfo 1条" in result
+    assert "stock_hot_rank_latest_em 1条" in result
+    assert "stock_news_proxy 1条" in result
     assert "官方互动问答: 1 条" in result
     assert "社区热度: 2 条" in result
     assert "新闻回退: 1 条" in result
+    assert "原生社媒样本: 3 条" in result
     assert "参与情绪统计样本: 2 条" in result
     assert "正向: 2 条" in result
     assert "中性: 0 条" in result
+
+
+def test_social_sentiment_warns_when_a_share_only_has_news_proxy(monkeypatch):
+    docs = [
+        {
+            "symbol": "600519",
+            "platform": "news_proxy",
+            "message_type": "news_sentiment_proxy",
+            "data_source": "stock_news_proxy",
+            "content": "公司短期仍受渠道补库存影响，市场分歧加大。",
+            "publish_time": datetime(2026, 4, 2, 10, 30),
+            "sentiment": "neutral",
+            "sentiment_score": 0.0,
+        }
+    ]
+
+    monkeypatch.setattr(agent_utils, "get_mongo_db_sync", lambda: _FakeDB(docs), raising=False)
+
+    import app.core.database as database_module
+
+    monkeypatch.setattr(database_module, "get_mongo_db_sync", lambda: _FakeDB(docs))
+
+    result = agent_utils._get_social_media_sentiment_from_database(
+        ticker="600519",
+        curr_date="2026-04-03",
+        market_info={"market_name": "A股", "is_china": True, "is_hk": False, "is_us": False},
+    )
+
+    assert "原生社媒样本: 0 条" in result
+    assert "当前样本主要来自新闻回退" in result
 
 
 def test_social_sentiment_missing_data_message():

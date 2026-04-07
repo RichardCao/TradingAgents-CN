@@ -1256,7 +1256,14 @@ class TestRecentChanges(unittest.TestCase):
 
         class FakeForeignStockService:
             async def get_hk_news(self, code, days=7, limit=10):
-                return {"source": "none", "items": []}
+                return {
+                    "source": "none",
+                    "items": [],
+                    "source_attempts": [
+                        {"source": "akshare", "success": False, "item_count": 0, "error": "AKShare 暂不支持港股新闻"},
+                        {"source": "finnhub", "success": False, "item_count": 0, "error": "Finnhub API Key 未配置"},
+                    ],
+                }
 
             def _get_hk_news_from_akshare(self, code, days, limit):
                 return []
@@ -1283,6 +1290,8 @@ class TestRecentChanges(unittest.TestCase):
         self.assertIn("## 获取失败", output)
         self.assertIn("原生路径与 Google 新闻都未返回有效的高相关近期新闻", output)
         self.assertIn("Google关键词", output)
+        self.assertIn("尝试明细: akshare: 失败 AKShare 暂不支持港股新闻", output)
+        self.assertIn("finnhub: 失败 Finnhub API Key 未配置", output)
 
 
 if __name__ == "__main__":

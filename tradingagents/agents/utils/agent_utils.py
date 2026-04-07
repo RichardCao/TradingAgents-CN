@@ -428,6 +428,28 @@ def _build_social_section(title: str, messages: List[Dict[str, Any]], empty_text
     return "\n".join(lines)
 
 
+def _build_social_source_summary(messages: List[Dict[str, Any]]) -> str:
+    source_counts: Dict[str, int] = {}
+
+    for message in messages:
+        source = str(message.get("data_source") or message.get("platform") or "unknown").strip()
+        if not source:
+            source = "unknown"
+        source_counts[source] = source_counts.get(source, 0) + 1
+
+    if not source_counts:
+        return "无"
+
+    return "、".join(
+        f"{source} {count}条"
+        for source, count in sorted(
+            source_counts.items(),
+            key=lambda item: item[1],
+            reverse=True,
+        )[:6]
+    )
+
+
 def _get_social_media_sentiment_from_database(
     ticker: str,
     curr_date: str,
@@ -470,6 +492,7 @@ def _get_social_media_sentiment_from_database(
 
         sentiment_counts = {"positive": 0, "negative": 0, "neutral": 0}
         platform_counts: Dict[str, int] = {}
+        source_counts: Dict[str, int] = {}
         category_counts = {
             "official_ir": 0,
             "community_heat": 0,
@@ -489,6 +512,8 @@ def _get_social_media_sentiment_from_database(
         for message in messages:
             platform = str(message.get("platform") or "unknown")
             platform_counts[platform] = platform_counts.get(platform, 0) + 1
+            source = str(message.get("data_source") or platform or "unknown")
+            source_counts[source] = source_counts.get(source, 0) + 1
             category = _categorize_social_message(message)
             category_counts[category] += 1
             grouped_messages[category].append(message)
@@ -521,6 +546,17 @@ def _get_social_media_sentiment_from_database(
                 reverse=True,
             )[:5]
         ) or "无"
+        source_summary = _build_social_source_summary(messages)
+        native_sample_count = (
+            category_counts["official_ir"]
+            + category_counts["community_heat"]
+            + category_counts["other_social"]
+        )
+        uses_news_proxy_only = (
+            market_info.get("is_china") is True
+            and native_sample_count == 0
+            and category_counts["news_fallback"] > 0
+        )
 
         latest_label = latest_time.strftime("%Y-%m-%d %H:%M") if latest_time else "未知"
         sentiment_sample_count = sum(sentiment_counts.values())
@@ -558,11 +594,13 @@ def _get_social_media_sentiment_from_database(
             f"**最新消息时间**: {latest_label}\n"
             f"**样本数量**: {len(messages)} 条\n"
             f"**平台分布**: {platform_summary}\n\n"
+            f"**来源分布**: {source_summary}\n\n"
             "## 数据结构\n"
             f"- 官方互动问答: {category_counts['official_ir']} 条\n"
             f"- 社区热度: {category_counts['community_heat']} 条\n"
             f"- 新闻回退: {category_counts['news_fallback']} 条\n"
-            f"- 其他社媒: {category_counts['other_social']} 条\n\n"
+            f"- 其他社媒: {category_counts['other_social']} 条\n"
+            f"- 原生社媒样本: {native_sample_count} 条\n\n"
             "## 情绪概况\n"
             f"- 统计口径: 仅对文本类消息计入情绪，社区热度快照不计入\n"
             f"- 参与情绪统计样本: {sentiment_sample_count} 条\n"
@@ -570,6 +608,12 @@ def _get_social_media_sentiment_from_database(
             f"- 负向: {sentiment_counts['negative']} 条\n"
             f"- 中性: {sentiment_counts['neutral']} 条\n"
             f"- 平均情绪得分: {avg_score:.2f}\n\n"
+            + (
+                "## 口径提示\n"
+                "- 当前样本主要来自新闻回退，未读到 A 股原生互动/热度数据；建议先补做原生社媒同步后再复核结论。\n\n"
+                if uses_news_proxy_only
+                else ""
+            )
             + "\n\n".join(social_sections)
             + "\n\n---\n*数据来源: social_media_messages（已同步社媒数据，只读分析）*"
         )
@@ -1821,6 +1865,11 @@ class Toolkit:
                             else "none"
                         )
                         items = result.get("items", []) if isinstance(result, dict) else []
+                        source_attempts = (
+                            result.get("source_attempts", [])
+                            if isinstance(result, dict)
+                            else []
+                        )
 
                         if not items:
                             fallback_errors = []
@@ -1846,6 +1895,19 @@ class Toolkit:
                                 if fallback_errors and not items
                                 else "原生新闻源返回空结果"
                             )
+                            if source_attempts:
+                                attempt_summary = "；".join(
+                                    (
+                                        f"{item.get('source')}: "
+                                        + (
+                                            f"成功 {item.get('item_count', 0)} 条"
+                                            if item.get("success")
+                                            else f"失败 {item.get('error') or '空结果'}"
+                                        )
+                                    )
+                                    for item in source_attempts
+                                )
+                                error = f"{error}；尝试明细: {attempt_summary}"
                         else:
                             error = None
 
