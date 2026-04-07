@@ -356,8 +356,8 @@
         >
           新闻回退同步
         </el-button>
-        <el-button @click="openDeleteSyncedDataDialog(contentDataDialog.stock_code)">
-          打开数据清理
+        <el-button @click="openContentDataDeleteDialog">
+          查看可删数据
         </el-button>
       </div>
 
@@ -1061,7 +1061,11 @@
 
       <div v-if="hasDeleteLinkedContext" class="sync-linked-context">
         <div class="sync-linked-context__text">
-          当前来自同步记录的关联条件：{{ deleteLinkedContextText || '已带入关联条件' }}
+          {{
+            deleteSyncedDataContext.source === 'data'
+              ? `当前来自内容数据页的关联条件：${deleteLinkedContextText || '已带入关联条件'}`
+              : `当前来自同步记录的关联条件：${deleteLinkedContextText || '已带入关联条件'}`
+          }}
         </div>
         <el-button size="small" @click="clearDeleteLinkedFilter">
           清除关联条件
@@ -1904,6 +1908,21 @@ const buildContentDataHistoryContext = (): Partial<SyncLinkContext> => {
   }
 }
 
+const buildContentDataDeleteContext = (): Partial<SyncLinkContext> => {
+  const end = new Date()
+  const start = new Date(Date.now() - contentDataHoursBack.value * 3600 * 1000)
+  const syncTypes = contentDataActiveTab.value === 'news' ? ['news'] : ['social_media']
+  const dataSources = contentDataSourceFilter.value ? [contentDataSourceFilter.value] : []
+
+  return {
+    syncTypes,
+    dataSources,
+    rangeStart: formatContentDate(start),
+    rangeEnd: formatContentDate(end),
+    source: 'data'
+  }
+}
+
 const openContentDataSyncHistory = async () => {
   const symbol = String(contentDataDialog.value.stock_code || '').trim().toUpperCase()
   if (!symbol) {
@@ -1912,6 +1931,19 @@ const openContentDataSyncHistory = async () => {
   }
 
   await openSyncHistoryDialog(symbol, buildContentDataHistoryContext(), { showEmptyTip: true })
+}
+
+const openContentDataDeleteDialog = async () => {
+  const symbol = String(contentDataDialog.value.stock_code || '').trim().toUpperCase()
+  if (!symbol) {
+    ElMessage.warning('缺少股票代码，无法查看可删数据')
+    return
+  }
+
+  openDeleteSyncedDataDialog(symbol, buildContentDataDeleteContext())
+  pendingDeleteLinkedLookupTip.value = true
+  await loadSyncedDataSummary({ showEmptyTip: pendingDeleteLinkedLookupTip.value })
+  pendingDeleteLinkedLookupTip.value = false
 }
 
 const openContentDataDialog = async (row: FavoriteItem) => {
