@@ -1,5 +1,50 @@
 # A 股原生社媒数据源接入方案
 
+## 当前已实现状态
+
+截至当前仓库状态，下面这些能力已经落地，不再只是方案：
+
+- 已提供两条显式同步入口：
+  - A 股原生社媒同步
+  - 新闻回退生成社媒快照
+- A 股原生社媒同步已支持：
+  - 官方互动问答：`stock_irm_cninfo`、`stock_sns_sseinfo`
+  - `cninfo` 回答详情回补：`stock_irm_ans_cninfo`
+  - 社区热度 / 趋势：
+    - `stock_hot_rank_em`
+    - `stock_hot_rank_detail_em`
+    - `stock_hot_rank_latest_em`
+    - `stock_hot_rank_detail_realtime_em`
+    - `stock_hot_keyword_em`
+    - `stock_hot_rank_relate_em`
+    - `stock_hot_up_em`
+    - `stock_hot_follow_xq`
+    - `stock_hot_tweet_xq`
+    - `stock_hot_deal_xq`
+    - `stock_hot_search_baidu`
+- A 股原生同步现在会聚合多个可用官方源，而不是命中第一个后停止。
+- 分析前预同步已经收口为：
+  - 优先原生社媒数据
+  - 分析阶段只读
+  - `news_proxy` 不再默认代表“原生社媒已准备完成”
+- 前端“内容数据”页已经能直接查看：
+  - 已同步新闻
+  - 互动问答
+  - 社媒热度
+  - 新闻回退
+- 前端“内容数据”页已支持：
+  - 来源中文标签
+  - 来源分布概览
+  - 来源 / 关键词筛选
+  - 跳转同步历史
+  - 跳转数据清理
+
+因此，本文档后面的内容应理解为：
+
+- 一部分已经完成
+- 一部分仍是后续可以继续增强的方向
+- 不是“当前仓库仍完全停留在新闻代理阶段”
+
 ## 背景
 
 当前仓库里的 A 股“社媒同步”主链路，本质上仍是：
