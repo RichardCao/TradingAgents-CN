@@ -474,5 +474,44 @@ def test_normalize_heat_rows_to_messages_includes_relate_up_and_baidu_sources():
     ]
 
 
+def test_enrich_cninfo_rows_with_answer_details_backfills_missing_answer(monkeypatch):
+    async def fake_fetch_cninfo_answer_detail(question_id):
+        assert question_id == "q-100"
+        return {
+            "股票代码": "600519",
+            "公司简称": "贵州茅台",
+            "问题": "请问今年直营渠道规划如何？",
+            "回答内容": "公司会结合市场需求持续优化直营网点布局。",
+            "提问者": "价值投资者",
+            "提问时间": "2026-04-06 09:00:00",
+            "回答时间": "2026-04-06 18:00:00",
+        }
+
+    monkeypatch.setattr(social_sync_service, "_fetch_cninfo_answer_detail", fake_fetch_cninfo_answer_detail)
+
+    import asyncio
+
+    rows = asyncio.run(
+        social_sync_service._enrich_cninfo_rows_with_answer_details(
+            [
+                {
+                    "股票代码": "600519",
+                    "公司简称": "贵州茅台",
+                    "问题编号": "q-100",
+                    "问题": "请问今年直营渠道规划如何？",
+                    "提问者": "价值投资者",
+                    "提问时间": "2026-04-06 09:00:00",
+                    "回答内容": "",
+                    "回答者": "",
+                }
+            ]
+        )
+    )
+
+    assert rows[0]["回答内容"] == "公司会结合市场需求持续优化直营网点布局。"
+    assert rows[0]["回答者"] == "贵州茅台"
+    assert rows[0]["回答时间"] == "2026-04-06 18:00:00"
+
+
 async def _async_result(value):
     return value

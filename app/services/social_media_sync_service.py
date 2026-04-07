@@ -725,7 +725,53 @@ async def _fetch_native_source_rows(
     if df is None or getattr(df, "empty", True):
         return []
 
-    return df.head(max_items).to_dict("records")
+    rows = df.head(max_items).to_dict("records")
+    if source_name == "stock_irm_cninfo":
+        rows = await _enrich_cninfo_rows_with_answer_details(rows)
+    return rows
+
+
+async def _fetch_cninfo_answer_detail(question_id: str) -> Dict[str, Any]:
+    import akshare as ak
+
+    df = await asyncio.to_thread(ak.stock_irm_ans_cninfo, symbol=question_id)
+    if df is None or getattr(df, "empty", True):
+        return {}
+    records = df.to_dict("records")
+    return records[0] if records else {}
+
+
+async def _enrich_cninfo_rows_with_answer_details(
+    rows: List[Dict[str, Any]],
+    *,
+    max_detail_fetches: int = 5,
+) -> List[Dict[str, Any]]:
+    enriched_rows: List[Dict[str, Any]] = []
+    remaining_fetches = max_detail_fetches
+
+    for row in rows:
+        enriched_row = dict(row)
+        needs_detail = not _clean_text(enriched_row.get("回答内容"))
+        question_id = str(enriched_row.get("问题编号") or "").strip()
+
+        if needs_detail and question_id and remaining_fetches > 0:
+            remaining_fetches -= 1
+            try:
+                detail = await _fetch_cninfo_answer_detail(question_id)
+            except Exception:
+                detail = {}
+
+            if detail:
+                if not _clean_text(enriched_row.get("回答内容")):
+                    enriched_row["回答内容"] = detail.get("回答内容") or enriched_row.get("回答内容")
+                if not _clean_text(enriched_row.get("回答者")):
+                    enriched_row["回答者"] = detail.get("公司简称") or detail.get("回答者") or enriched_row.get("回答者")
+                if not _clean_text(enriched_row.get("回答时间")):
+                    enriched_row["回答时间"] = detail.get("回答时间") or enriched_row.get("更新时间") or enriched_row.get("回答时间")
+
+        enriched_rows.append(enriched_row)
+
+    return enriched_rows
 
 
 async def _load_a_share_native_social_rows(symbol: str, max_items: int) -> Dict[str, Any]:
