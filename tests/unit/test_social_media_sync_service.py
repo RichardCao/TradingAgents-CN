@@ -511,6 +511,81 @@ def test_enrich_cninfo_rows_with_answer_details_backfills_missing_answer(monkeyp
     assert rows[0]["回答内容"] == "公司会结合市场需求持续优化直营网点布局。"
     assert rows[0]["回答者"] == "贵州茅台"
     assert rows[0]["回答时间"] == "2026-04-06 18:00:00"
+    assert rows[0]["__used_answer_detail_source"] is True
+
+
+def test_sync_a_share_native_social_media_marks_cninfo_answer_detail_source(monkeypatch):
+    fake_service = _FakeSocialService()
+
+    async def fake_has_existing_social_media_data(symbol, hours_back):
+        return {"recent_count": 0, "latest_publish_time": None}
+
+    async def fake_load_a_share_native_social_rows(symbol, max_items):
+        return {
+            "source": "stock_irm_cninfo",
+            "rows": [
+                {
+                    "股票代码": "600519",
+                    "公司简称": "贵州茅台",
+                    "问题编号": "q-200",
+                    "问题": "请问直营渠道如何布局？",
+                    "提问者": "投资者A",
+                    "提问时间": "2026-04-06 09:00:00",
+                    "回答内容": "",
+                    "回答者": "",
+                    "__used_answer_detail_source": True,
+                }
+            ],
+            "sources_tried": ["stock_irm_cninfo"],
+            "source_results": [
+                {
+                    "source": "stock_irm_cninfo",
+                    "rows": [
+                        {
+                            "股票代码": "600519",
+                            "公司简称": "贵州茅台",
+                            "问题编号": "q-200",
+                            "问题": "请问直营渠道如何布局？",
+                            "提问者": "投资者A",
+                            "提问时间": "2026-04-06 09:00:00",
+                            "回答内容": "公司会结合市场需求稳步推进直营网点布局。",
+                            "回答者": "贵州茅台",
+                            "__used_answer_detail_source": True,
+                        }
+                    ],
+                }
+            ],
+        }
+
+    async def fake_load_a_share_heat_rows(symbol):
+        return {}
+
+    async def fake_get_social_media_service():
+        return fake_service
+
+    async def fake_save_sync_history_record(**kwargs):
+        return None
+
+    monkeypatch.setattr(social_sync_service, "_has_existing_social_media_data", fake_has_existing_social_media_data)
+    monkeypatch.setattr(social_sync_service, "_load_a_share_native_social_rows", fake_load_a_share_native_social_rows)
+    monkeypatch.setattr(social_sync_service, "_load_a_share_heat_rows", fake_load_a_share_heat_rows)
+    monkeypatch.setattr(social_sync_service, "get_social_media_service", fake_get_social_media_service)
+    monkeypatch.setattr(social_sync_service, "save_sync_history_record", fake_save_sync_history_record)
+
+    import asyncio
+
+    resolved = asyncio.run(
+        social_sync_service.sync_a_share_native_social_media(
+            symbol="600519",
+            current_user={"id": "test-user"},
+            save_history=True,
+            skip_if_existing=False,
+            allow_news_fallback=False,
+        )
+    )
+
+    assert "stock_irm_cninfo" in (resolved.source_details or [])
+    assert "stock_irm_ans_cninfo" in (resolved.source_details or [])
 
 
 async def _async_result(value):

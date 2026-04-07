@@ -768,6 +768,7 @@ async def _enrich_cninfo_rows_with_answer_details(
                     enriched_row["回答者"] = detail.get("公司简称") or detail.get("回答者") or enriched_row.get("回答者")
                 if not _clean_text(enriched_row.get("回答时间")):
                     enriched_row["回答时间"] = detail.get("回答时间") or enriched_row.get("更新时间") or enriched_row.get("回答时间")
+                enriched_row["__used_answer_detail_source"] = True
 
         enriched_rows.append(enriched_row)
 
@@ -1096,6 +1097,8 @@ async def sync_a_share_native_social_media(
         native_total_items += len(rows)
         if native_source == "stock_irm_cninfo":
             native_messages.extend(_normalize_cninfo_rows_to_messages(symbol, rows))
+            if any(bool(row.get("__used_answer_detail_source")) for row in rows):
+                native_source_details.append("stock_irm_ans_cninfo")
         elif native_source == "stock_sns_sseinfo":
             native_messages.extend(_normalize_sse_rows_to_messages(symbol, rows))
 
