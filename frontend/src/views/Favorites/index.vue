@@ -339,6 +339,9 @@
         <el-button @click="resetContentDataFilters">
           清空筛选
         </el-button>
+        <el-button @click="openContentDataSyncHistory">
+          查看同步记录
+        </el-button>
         <el-button
           v-if="contentDataDialog.market === 'A股'"
           :loading="contentDataSyncLoading"
@@ -392,13 +395,16 @@
       <div v-if="contentDataSourceStats.length > 0" class="content-data-source-overview">
         <div class="content-data-source-overview__title">来源分布</div>
         <div class="content-data-source-overview__list">
-          <span
+          <button
             v-for="item in contentDataSourceStats"
             :key="item.source"
+            type="button"
             class="content-data-source-chip"
+            :class="{ 'is-active': contentDataSourceFilter === item.source }"
+            @click="toggleContentDataSourceFilter(item.source)"
           >
             {{ formatDataSourceLabel(item.source) }} · {{ item.count }}
-          </span>
+          </button>
         </div>
       </div>
 
@@ -1877,6 +1883,37 @@ const resetContentDataFilters = () => {
   contentDataKeyword.value = ''
 }
 
+const toggleContentDataSourceFilter = (source: string) => {
+  contentDataSourceFilter.value = contentDataSourceFilter.value === source ? '' : source
+}
+
+const formatContentDate = (date: Date) => date.toISOString().slice(0, 10)
+
+const buildContentDataHistoryContext = (): Partial<SyncLinkContext> => {
+  const end = new Date()
+  const start = new Date(Date.now() - contentDataHoursBack.value * 3600 * 1000)
+  const syncTypes = contentDataActiveTab.value === 'news' ? ['news'] : ['social_media']
+  const dataSources = contentDataSourceFilter.value ? [contentDataSourceFilter.value] : []
+
+  return {
+    syncTypes,
+    dataSources,
+    rangeStart: formatContentDate(start),
+    rangeEnd: formatContentDate(end),
+    source: 'data'
+  }
+}
+
+const openContentDataSyncHistory = async () => {
+  const symbol = String(contentDataDialog.value.stock_code || '').trim().toUpperCase()
+  if (!symbol) {
+    ElMessage.warning('缺少股票代码，无法查看同步记录')
+    return
+  }
+
+  await openSyncHistoryDialog(symbol, buildContentDataHistoryContext(), { showEmptyTip: true })
+}
+
 const openContentDataDialog = async (row: FavoriteItem) => {
   contentDataDialog.value = {
     stock_code: String(row.stock_code || ''),
@@ -2734,6 +2771,8 @@ const DATA_SOURCE_LABELS: Record<string, string> = {
   stock_irm_cninfo: '巨潮互动易问答',
   stock_irm_ans_cninfo: '巨潮互动易回答详情',
   stock_sns_sseinfo: '上证 e 互动',
+  stock_hot_rank_em: '东财人气总榜',
+  stock_hot_rank_detail_em: '东财人气历史趋势',
   stock_hot_rank_latest_em: '东财人气榜',
   stock_hot_rank_detail_realtime_em: '东财实时人气',
   stock_hot_keyword_em: '东财热门关键词',
@@ -3497,6 +3536,20 @@ onMounted(() => {
     color: var(--el-text-color-regular);
     font-size: 12px;
     line-height: 1.4;
+    border: 1px solid transparent;
+    cursor: pointer;
+    transition: all 0.2s ease;
+  }
+
+  .content-data-source-chip:hover {
+    border-color: var(--el-color-primary-light-5);
+    color: var(--el-color-primary);
+  }
+
+  .content-data-source-chip.is-active {
+    background: var(--el-color-primary-light-9);
+    border-color: var(--el-color-primary-light-5);
+    color: var(--el-color-primary);
   }
 
   .content-data-list {
