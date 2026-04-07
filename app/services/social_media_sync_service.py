@@ -312,6 +312,39 @@ def _build_heat_message(
     )
 
 
+def _to_record_list(value: Any) -> List[Dict[str, Any]]:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return [item for item in value if isinstance(item, dict)]
+    if isinstance(value, dict):
+        return [value]
+    if hasattr(value, "to_dict"):
+        try:
+            records = value.to_dict("records")
+            if isinstance(records, list):
+                return [item for item in records if isinstance(item, dict)]
+        except Exception:
+            return []
+    return []
+
+
+def _extract_symbol_from_text(value: Any) -> str:
+    digits = "".join(ch for ch in str(value or "") if ch.isdigit())
+    if len(digits) >= 6:
+        return digits[-6:]
+    return ""
+
+
+def _extract_symbol_hit(records: List[Dict[str, Any]], symbol6: str, candidate_fields: List[str]) -> Optional[Dict[str, Any]]:
+    for row in records:
+        for field in candidate_fields:
+            row_symbol = _extract_symbol_from_text(row.get(field))
+            if row_symbol == symbol6:
+                return row
+    return None
+
+
 async def _load_a_share_heat_rows(symbol: str) -> Dict[str, Any]:
     symbol6 = StockUtils.normalize_display_symbol(symbol).zfill(6)
     prefixed_symbol = _build_a_share_prefixed_symbol(symbol6)
@@ -338,6 +371,11 @@ async def _load_a_share_heat_rows(symbol: str) -> Dict[str, Any]:
     except Exception:
         results["em_keywords"] = None
 
+    try:
+        results["em_relate"] = await _run_to_thread(ak.stock_hot_rank_relate_em, symbol=prefixed_symbol)
+    except Exception:
+        results["em_relate"] = None
+
     def _extract_xq_hit(df: Any) -> Optional[Dict[str, Any]]:
         if df is None or getattr(df, "empty", True):
             return None
@@ -363,6 +401,31 @@ async def _load_a_share_heat_rows(symbol: str) -> Dict[str, Any]:
         results["xq_deal"] = _extract_xq_hit(await _run_to_thread(ak.stock_hot_deal_xq, symbol="最热门"))
     except Exception:
         results["xq_deal"] = None
+
+    try:
+        em_up_df = await _run_to_thread(ak.stock_hot_up_em)
+        results["em_up"] = _extract_symbol_hit(
+            _to_record_list(em_up_df),
+            symbol6,
+            ["代码", "股票代码", "名称/代码"],
+        )
+    except Exception:
+        results["em_up"] = None
+
+    try:
+        baidu_df = await _run_to_thread(
+            ak.stock_hot_search_baidu,
+            symbol="A股",
+            date=datetime.now().strftime("%Y%m%d"),
+            time="今日",
+        )
+        results["baidu_search"] = _extract_symbol_hit(
+            _to_record_list(baidu_df),
+            symbol6,
+            ["名称/代码", "代码", "股票代码"],
+        )
+    except Exception:
+        results["baidu_search"] = None
 
     return results
 
@@ -442,6 +505,28 @@ def _normalize_heat_rows_to_messages(symbol: str, heat_payload: Dict[str, Any]) 
             if msg:
                 messages.append(msg)
 
+    em_relate_records = _to_record_list(heat_payload.get("em_relate"))
+    if em_relate_records:
+        related_rows = em_relate_records[:5]
+        related_summary = "；".join(
+            f"{_extract_symbol_from_text(item.get('相关股票代码')) or item.get('相关股票代码')}({item.get('涨跌幅')}%)"
+            for item in related_rows
+            if item.get("相关股票代码") is not None
+        )
+        if related_summary:
+            msg = _build_heat_message(
+                symbol=symbol6,
+                platform="eastmoney_guba",
+                message_type="keyword_snapshot",
+                data_source="stock_hot_rank_relate_em",
+                content=f"东方财富相关股票联动：{related_summary}",
+                unique_value=f"em_relate|{related_summary}",
+                publish_time=_coerce_datetime(related_rows[0].get("时间")) or now,
+                keywords=keywords,
+            )
+            if msg:
+                messages.append(msg)
+
     xq_metric_map = {
         "xq_follow": ("stock_hot_follow_xq", "雪球关注热度"),
         "xq_tweet": ("stock_hot_tweet_xq", "雪球讨论热度"),
@@ -465,6 +550,52 @@ def _normalize_heat_rows_to_messages(symbol: str, heat_payload: Dict[str, Any]) 
             data_source=source_name,
             content=content,
             unique_value=f"{source_name}|{rank}|{metric_value}|{price_value}",
+            publish_time=now,
+            keywords=keywords,
+        )
+        if msg:
+            messages.append(msg)
+
+    em_up_row = heat_payload.get("em_up")
+    if em_up_row:
+        content = (
+            f"东方财富飙升榜：当前排名 {em_up_row.get('当前排名')}，"
+            f"较昨日变动 {em_up_row.get('排名较昨日变动')}，"
+            f"最新价 {em_up_row.get('最新价')}，涨跌幅 {em_up_row.get('涨跌幅')}%。"
+        )
+        msg = _build_heat_message(
+            symbol=symbol6,
+            platform="eastmoney_guba",
+            message_type="heat_snapshot",
+            data_source="stock_hot_up_em",
+            content=content,
+            unique_value=(
+                f"em_up|{em_up_row.get('当前排名')}|"
+                f"{em_up_row.get('排名较昨日变动')}|{em_up_row.get('最新价')}"
+            ),
+            publish_time=now,
+            keywords=keywords,
+        )
+        if msg:
+            messages.append(msg)
+
+    baidu_search_row = heat_payload.get("baidu_search")
+    if baidu_search_row:
+        content = (
+            f"百度股市通热搜：名称/代码 {baidu_search_row.get('名称/代码')}，"
+            f"综合热度 {baidu_search_row.get('综合热度')}，"
+            f"涨跌幅 {baidu_search_row.get('涨跌幅')}。"
+        )
+        msg = _build_heat_message(
+            symbol=symbol6,
+            platform="baidu_gushitong",
+            message_type="heat_snapshot",
+            data_source="stock_hot_search_baidu",
+            content=content,
+            unique_value=(
+                f"baidu_search|{baidu_search_row.get('名称/代码')}|"
+                f"{baidu_search_row.get('综合热度')}|{baidu_search_row.get('涨跌幅')}"
+            ),
             publish_time=now,
             keywords=keywords,
         )
@@ -542,9 +673,12 @@ def _collect_heat_source_details(heat_payload: Dict[str, Any]) -> List[str]:
         "em_latest": "stock_hot_rank_latest_em",
         "em_realtime": "stock_hot_rank_detail_realtime_em",
         "em_keywords": "stock_hot_keyword_em",
+        "em_relate": "stock_hot_rank_relate_em",
+        "em_up": "stock_hot_up_em",
         "xq_follow": "stock_hot_follow_xq",
         "xq_tweet": "stock_hot_tweet_xq",
         "xq_deal": "stock_hot_deal_xq",
+        "baidu_search": "stock_hot_search_baidu",
     }
     return [
         source_name

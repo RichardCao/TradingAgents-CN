@@ -424,5 +424,55 @@ def test_sync_a_share_native_social_media_aggregates_multiple_official_sources(m
     assert {item["platform"] for item in fake_service.saved_payload} == {"sse_einteractive", "cninfo_irm"}
 
 
+def test_normalize_heat_rows_to_messages_includes_relate_up_and_baidu_sources():
+    heat_payload = {
+        "em_relate": [
+            {
+                "时间": "2026-04-07 09:30:00",
+                "股票代码": "SH600519",
+                "相关股票代码": "000858",
+                "涨跌幅": 1.86,
+            },
+            {
+                "时间": "2026-04-07 09:30:00",
+                "股票代码": "SH600519",
+                "相关股票代码": "600036",
+                "涨跌幅": -0.42,
+            },
+        ],
+        "em_up": {
+            "代码": "SH600519",
+            "当前排名": 6,
+            "排名较昨日变动": 12,
+            "最新价": 1688.0,
+            "涨跌幅": 2.31,
+        },
+        "baidu_search": {
+            "名称/代码": "贵州茅台 600519",
+            "综合热度": 987654,
+            "涨跌幅": "+2.31%",
+        },
+    }
+
+    messages = social_sync_service._normalize_heat_rows_to_messages("600519", heat_payload)
+    source_details = social_sync_service._collect_heat_source_details(heat_payload)
+
+    assert {item["data_source"] for item in messages} == {
+        "stock_hot_rank_relate_em",
+        "stock_hot_up_em",
+        "stock_hot_search_baidu",
+    }
+    assert {item["platform"] for item in messages} == {
+        "eastmoney_guba",
+        "baidu_gushitong",
+    }
+    assert {item["message_type"] for item in messages} == {"keyword_snapshot", "heat_snapshot"}
+    assert source_details == [
+        "stock_hot_rank_relate_em",
+        "stock_hot_up_em",
+        "stock_hot_search_baidu",
+    ]
+
+
 async def _async_result(value):
     return value
