@@ -319,7 +319,7 @@
           <el-option
             v-for="source in contentDataAvailableSources"
             :key="source"
-            :label="source"
+            :label="formatDataSourceLabel(source)"
             :value="source"
           />
         </el-select>
@@ -389,6 +389,19 @@
         </div>
       </div>
 
+      <div v-if="contentDataSourceStats.length > 0" class="content-data-source-overview">
+        <div class="content-data-source-overview__title">来源分布</div>
+        <div class="content-data-source-overview__list">
+          <span
+            v-for="item in contentDataSourceStats"
+            :key="item.source"
+            class="content-data-source-chip"
+          >
+            {{ formatDataSourceLabel(item.source) }} · {{ item.count }}
+          </span>
+        </div>
+      </div>
+
       <el-tabs v-model="contentDataActiveTab">
         <el-tab-pane :label="`已同步新闻 (${filteredContentNewsItems.length})`" name="news">
           <el-empty v-if="!contentDataLoading && filteredContentNewsItems.length === 0" description="暂无已同步新闻" />
@@ -402,7 +415,7 @@
                 <div class="content-data-item__time">{{ formatDateTime(item.publish_time) }}</div>
               </div>
               <div class="content-data-item__meta">
-                <span>{{ item.source || item.data_source || '-' }}</span>
+                <span>{{ formatDataSourceLabel(item.source || item.data_source || '') }}</span>
                 <span>{{ item.category || 'news' }}</span>
                 <span>{{ item.sentiment || 'unknown' }}</span>
               </div>
@@ -424,8 +437,8 @@
                 <div class="content-data-item__time">{{ formatDateTime(item.publish_time) }}</div>
               </div>
               <div class="content-data-item__meta">
-                <span>{{ item.platform }}</span>
-                <span>{{ item.data_source || '-' }}</span>
+                <span>{{ formatSocialPlatformLabel(item.platform) }}</span>
+                <span>{{ formatDataSourceLabel(item.data_source || '') }}</span>
                 <span>{{ item.author?.name || '-' }}</span>
               </div>
               <div class="content-data-item__body">
@@ -446,8 +459,8 @@
                 <div class="content-data-item__time">{{ formatDateTime(item.publish_time) }}</div>
               </div>
               <div class="content-data-item__meta">
-                <span>{{ item.platform }}</span>
-                <span>{{ item.data_source || '-' }}</span>
+                <span>{{ formatSocialPlatformLabel(item.platform) }}</span>
+                <span>{{ formatDataSourceLabel(item.data_source || '') }}</span>
               </div>
               <div class="content-data-item__body">
                 {{ item.content || '-' }}
@@ -465,8 +478,8 @@
                 <div class="content-data-item__time">{{ formatDateTime(item.publish_time) }}</div>
               </div>
               <div class="content-data-item__meta">
-                <span>{{ item.platform }}</span>
-                <span>{{ item.data_source || '-' }}</span>
+                <span>{{ formatSocialPlatformLabel(item.platform) }}</span>
+                <span>{{ formatDataSourceLabel(item.data_source || '') }}</span>
               </div>
               <div class="content-data-item__body">
                 {{ item.content || '-' }}
@@ -1636,6 +1649,27 @@ const contentDataUniqueSourceCount = computed(() =>
   ]).size
 )
 
+const contentDataSourceStats = computed(() => {
+  const counts = new Map<string, number>()
+
+  for (const item of contentNewsItems.value) {
+    const source = String(item.source || item.data_source || '').trim()
+    if (!source) continue
+    counts.set(source, (counts.get(source) || 0) + 1)
+  }
+
+  for (const item of contentSocialItems.value) {
+    const source = String(item.data_source || item.platform || '').trim()
+    if (!source) continue
+    counts.set(source, (counts.get(source) || 0) + 1)
+  }
+
+  return Array.from(counts.entries())
+    .map(([source, count]) => ({ source, count }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 12)
+})
+
 watch(
   [contentDataActiveTab, contentDataAvailableSources],
   () => {
@@ -2690,9 +2724,52 @@ const formatHistoryRange = (row: SyncHistoryRecord) => {
   return `${row.historical_range.start_date} ~ ${row.historical_range.end_date}`
 }
 
+const DATA_SOURCE_LABELS: Record<string, string> = {
+  akshare: 'AKShare',
+  tushare: 'Tushare',
+  mixed: '实时 AKShare + 其他 Tushare',
+  realtime: '实时行情',
+  realtime_cache: '实时行情缓存',
+  stock_news_proxy: '新闻回退代理',
+  stock_irm_cninfo: '巨潮互动易问答',
+  stock_irm_ans_cninfo: '巨潮互动易回答详情',
+  stock_sns_sseinfo: '上证 e 互动',
+  stock_hot_rank_latest_em: '东财人气榜',
+  stock_hot_rank_detail_realtime_em: '东财实时人气',
+  stock_hot_keyword_em: '东财热门关键词',
+  stock_hot_rank_relate_em: '东财相关股联动',
+  stock_hot_up_em: '东财飙升榜',
+  stock_hot_follow_xq: '雪球关注热度',
+  stock_hot_tweet_xq: '雪球讨论热度',
+  stock_hot_deal_xq: '雪球交易热度',
+  stock_hot_search_baidu: '百度股市通热搜',
+  realtime_eastmoney: '东方财富实时行情'
+}
+
+const SOCIAL_PLATFORM_LABELS: Record<string, string> = {
+  cninfo_irm: '巨潮互动易',
+  sse_einteractive: '上证 e 互动',
+  eastmoney_guba: '东方财富股吧',
+  xueqiu: '雪球',
+  baidu_gushitong: '百度股市通',
+  news_proxy: '新闻回退代理'
+}
+
+const formatDataSourceLabel = (source: string) => {
+  const normalized = String(source || '').trim()
+  if (!normalized) return '-'
+  return DATA_SOURCE_LABELS[normalized] || normalized.toUpperCase()
+}
+
+const formatSocialPlatformLabel = (platform: string) => {
+  const normalized = String(platform || '').trim()
+  if (!normalized) return '-'
+  return SOCIAL_PLATFORM_LABELS[normalized] || normalized
+}
+
 const formatDataSources = (sources: string[]) => {
   if (!Array.isArray(sources) || sources.length === 0) return '-'
-  return sources.map(source => source.toUpperCase()).join(' / ')
+  return sources.map((source) => formatDataSourceLabel(source)).join(' / ')
 }
 
 const formatSyncTypes = (types: string[]) => {
@@ -3388,6 +3465,38 @@ onMounted(() => {
     margin-top: 8px;
     font-size: 12px;
     color: var(--el-text-color-secondary);
+  }
+
+  .content-data-source-overview {
+    margin-bottom: 16px;
+    padding: 12px 14px;
+    border: 1px solid var(--el-border-color-lighter);
+    border-radius: 10px;
+    background: var(--el-fill-color-lighter);
+  }
+
+  .content-data-source-overview__title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--el-text-color-primary);
+    margin-bottom: 10px;
+  }
+
+  .content-data-source-overview__list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .content-data-source-chip {
+    display: inline-flex;
+    align-items: center;
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: var(--el-fill-color);
+    color: var(--el-text-color-regular);
+    font-size: 12px;
+    line-height: 1.4;
   }
 
   .content-data-list {
