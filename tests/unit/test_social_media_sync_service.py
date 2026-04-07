@@ -1,5 +1,7 @@
 from datetime import datetime
 
+import pandas as pd
+
 import app.services.social_media_sync_service as social_sync_service
 
 
@@ -426,6 +428,19 @@ def test_sync_a_share_native_social_media_aggregates_multiple_official_sources(m
 
 def test_normalize_heat_rows_to_messages_includes_relate_up_and_baidu_sources():
     heat_payload = {
+        "em_rank": {
+            "代码": "SH600519",
+            "股票名称": "贵州茅台",
+            "当前排名": 3,
+            "最新价": 1688.0,
+            "涨跌幅": 2.31,
+        },
+        "em_detail": pd.DataFrame(
+            [
+                {"时间": "2026-04-05", "排名": 8, "证券代码": "SH600519", "新晋粉丝": 0.11, "铁杆粉丝": 0.22},
+                {"时间": "2026-04-07", "排名": 3, "证券代码": "SH600519", "新晋粉丝": 0.15, "铁杆粉丝": 0.28},
+            ]
+        ),
         "em_relate": [
             {
                 "时间": "2026-04-07 09:30:00",
@@ -458,6 +473,8 @@ def test_normalize_heat_rows_to_messages_includes_relate_up_and_baidu_sources():
     source_details = social_sync_service._collect_heat_source_details(heat_payload)
 
     assert {item["data_source"] for item in messages} == {
+        "stock_hot_rank_em",
+        "stock_hot_rank_detail_em",
         "stock_hot_rank_relate_em",
         "stock_hot_up_em",
         "stock_hot_search_baidu",
@@ -468,6 +485,8 @@ def test_normalize_heat_rows_to_messages_includes_relate_up_and_baidu_sources():
     }
     assert {item["message_type"] for item in messages} == {"keyword_snapshot", "heat_snapshot"}
     assert source_details == [
+        "stock_hot_rank_em",
+        "stock_hot_rank_detail_em",
         "stock_hot_rank_relate_em",
         "stock_hot_up_em",
         "stock_hot_search_baidu",

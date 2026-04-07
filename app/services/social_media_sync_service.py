@@ -357,6 +357,21 @@ async def _load_a_share_heat_rows(symbol: str) -> Dict[str, Any]:
         return await asyncio.to_thread(func, *args, **kwargs)
 
     try:
+        em_rank_df = await _run_to_thread(ak.stock_hot_rank_em)
+        results["em_rank"] = _extract_symbol_hit(
+            _to_record_list(em_rank_df),
+            symbol6,
+            ["代码", "股票代码", "名称/代码"],
+        )
+    except Exception:
+        results["em_rank"] = None
+
+    try:
+        results["em_detail"] = await _run_to_thread(ak.stock_hot_rank_detail_em, symbol=prefixed_symbol)
+    except Exception:
+        results["em_detail"] = None
+
+    try:
         results["em_latest"] = await _run_to_thread(ak.stock_hot_rank_latest_em, symbol=prefixed_symbol)
     except Exception:
         results["em_latest"] = None
@@ -455,6 +470,56 @@ def _normalize_heat_rows_to_messages(symbol: str, heat_payload: Dict[str, Any]) 
                 content=f"东方财富股吧热度快照：{summary}",
                 unique_value=f"em_latest|{summary}",
                 publish_time=now,
+                keywords=keywords,
+            )
+            if msg:
+                messages.append(msg)
+
+    em_rank_row = heat_payload.get("em_rank")
+    if em_rank_row:
+        content = (
+            f"东方财富人气总榜：当前排名 {em_rank_row.get('当前排名')}，"
+            f"股票名称 {em_rank_row.get('股票名称')}，"
+            f"最新价 {em_rank_row.get('最新价')}，涨跌幅 {em_rank_row.get('涨跌幅')}%。"
+        )
+        msg = _build_heat_message(
+            symbol=symbol6,
+            platform="eastmoney_guba",
+            message_type="heat_snapshot",
+            data_source="stock_hot_rank_em",
+            content=content,
+            unique_value=(
+                f"em_rank|{em_rank_row.get('当前排名')}|"
+                f"{em_rank_row.get('最新价')}|{em_rank_row.get('涨跌幅')}"
+            ),
+            publish_time=now,
+            keywords=keywords,
+        )
+        if msg:
+            messages.append(msg)
+
+    em_detail = heat_payload.get("em_detail")
+    if em_detail is not None and not getattr(em_detail, "empty", True):
+        detail_records = em_detail.to_dict("records")
+        if detail_records:
+            latest = detail_records[-1]
+            earliest = detail_records[0]
+            content = (
+                f"东方财富人气历史趋势：最新时间 {latest.get('时间')} 排名 {latest.get('排名')}，"
+                f"新晋粉丝占比 {latest.get('新晋粉丝')}，铁杆粉丝占比 {latest.get('铁杆粉丝')}；"
+                f"起点时间 {earliest.get('时间')} 排名 {earliest.get('排名')}。"
+            )
+            msg = _build_heat_message(
+                symbol=symbol6,
+                platform="eastmoney_guba",
+                message_type="heat_snapshot",
+                data_source="stock_hot_rank_detail_em",
+                content=content,
+                unique_value=(
+                    f"em_detail|{latest.get('时间')}|{latest.get('排名')}|"
+                    f"{latest.get('新晋粉丝')}|{latest.get('铁杆粉丝')}"
+                ),
+                publish_time=_coerce_datetime(latest.get("时间")) or now,
                 keywords=keywords,
             )
             if msg:
@@ -670,6 +735,8 @@ def _summarize_social_messages(messages: List[Dict[str, Any]]) -> Dict[str, Any]
 
 def _collect_heat_source_details(heat_payload: Dict[str, Any]) -> List[str]:
     source_map = {
+        "em_rank": "stock_hot_rank_em",
+        "em_detail": "stock_hot_rank_detail_em",
         "em_latest": "stock_hot_rank_latest_em",
         "em_realtime": "stock_hot_rank_detail_realtime_em",
         "em_keywords": "stock_hot_keyword_em",
