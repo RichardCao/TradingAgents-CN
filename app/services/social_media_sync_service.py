@@ -7,9 +7,10 @@
    - 优先使用官方互动问答数据
    - 沪市优先上证 e 互动
    - 深市/北交所优先巨潮互动易
+   - 补充东方财富 / 雪球 / 百度等平台热度信号
 2. 新闻代理同步
    - 从已同步新闻生成“舆情快照”
-   - 作为低成本 fallback
+   - 作为独立的显式补充入口，不再内置到“原生社媒同步”主链路
 """
 
 from __future__ import annotations
@@ -1093,8 +1094,12 @@ async def sync_a_share_native_social_media(
     max_items: int = 40,
     save_history: bool = True,
     skip_if_existing: bool = True,
-    allow_news_fallback: bool = True,
+    allow_news_fallback: bool = False,
 ) -> SocialMediaSyncResult:
+    if allow_news_fallback:
+        # 保留该参数仅为兼容旧调用方。当前主链路只保留“原生一手”来源。
+        allow_news_fallback = False
+
     started_at = datetime.utcnow()
     existing = await _has_existing_social_media_data(symbol, days_back * 24)
 
@@ -1206,26 +1211,6 @@ async def sync_a_share_native_social_media(
     generated_messages = len(messages)
     total_source_items = native_total_items + len(heat_messages)
 
-    if not messages and allow_news_fallback:
-        fallback_result = await sync_social_media_from_news_proxy(
-            symbol=symbol,
-            current_user=current_user,
-            hours_back=max(72, min(days_back * 24, 24 * 30)),
-            max_items=max_items,
-            save_history=False,
-            skip_if_existing=False,
-        )
-        if fallback_result.saved_messages > 0 or fallback_result.used_existing_social_data:
-            fallback_used = True
-            fallback_source = fallback_result.source
-            result_source = fallback_result.source
-            total_news = fallback_result.total_news
-            generated_messages = fallback_result.generated_messages
-            saved_messages = fallback_result.saved_messages
-            failed_messages = fallback_result.failed_messages
-            latest_publish_time = fallback_result.latest_publish_time
-            source_details = source_details + [fallback_result.source]
-
     finished_at = datetime.utcnow()
     overall_success = saved_messages > 0 or (skip_if_existing and existing["recent_count"] > 0)
     status = "success" if overall_success else "failed"
@@ -1256,11 +1241,13 @@ async def sync_a_share_native_social_media(
             overall_success=overall_success,
             summary=(
                 f"A股原生社媒同步成功，写入 {saved_messages} 条"
-                + (f"（已回退 {fallback_source}）" if fallback_used and fallback_source else "")
                 if overall_success
-                else "A股原生社媒同步未写入任何数据"
+                else "A股原生社媒同步未写入任何数据，请改用独立新闻回退同步补充样本"
             ),
-            errors=[] if overall_success else ["未获取到可用的 A 股原生社媒数据"],
+            errors=[] if overall_success else [
+                "未获取到可用的 A 股原生社媒数据",
+                "原生社媒同步主链路不再内置新闻回退；如需补充新闻样本，请单独执行新闻回退同步",
+            ],
             result={
                 "symbol": symbol,
                 "sync_stats": {

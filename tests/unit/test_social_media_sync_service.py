@@ -202,7 +202,7 @@ def test_sync_a_share_native_social_media_generates_native_messages(monkeypatch)
     }
 
 
-def test_sync_a_share_native_social_media_falls_back_to_news_proxy(monkeypatch):
+def test_sync_a_share_native_social_media_does_not_fall_back_to_news_proxy(monkeypatch):
     async def fake_has_existing_social_media_data(symbol, hours_back):
         return {"recent_count": 0, "latest_publish_time": None}
 
@@ -213,26 +213,12 @@ def test_sync_a_share_native_social_media_falls_back_to_news_proxy(monkeypatch):
             "sources_tried": ["stock_sns_sseinfo", "stock_irm_cninfo"],
         }
 
-    class _FakeProxyResult:
-        symbol = "600519"
-        source = "stock_news_proxy"
-        total_news = 5
-        generated_messages = 3
-        saved_messages = 3
-        failed_messages = 0
-        latest_publish_time = datetime(2026, 4, 3, 9, 0)
-        used_existing_social_data = False
-
-    async def fake_sync_social_media_from_news_proxy(**kwargs):
-        return _FakeProxyResult()
-
     async def fake_save_sync_history_record(**kwargs):
         return None
 
     monkeypatch.setattr(social_sync_service, "_has_existing_social_media_data", fake_has_existing_social_media_data)
     monkeypatch.setattr(social_sync_service, "_load_a_share_native_social_rows", fake_load_a_share_native_social_rows)
     monkeypatch.setattr(social_sync_service, "_load_a_share_heat_rows", lambda symbol: _async_result({}))
-    monkeypatch.setattr(social_sync_service, "sync_social_media_from_news_proxy", fake_sync_social_media_from_news_proxy)
     monkeypatch.setattr(social_sync_service, "save_sync_history_record", fake_save_sync_history_record)
 
     import asyncio
@@ -247,10 +233,11 @@ def test_sync_a_share_native_social_media_falls_back_to_news_proxy(monkeypatch):
         )
     )
 
-    assert resolved.saved_messages == 3
-    assert resolved.fallback_used is True
-    assert resolved.fallback_source == "stock_news_proxy"
-    assert resolved.source == "stock_news_proxy"
+    assert resolved.saved_messages == 0
+    assert resolved.generated_messages == 0
+    assert resolved.fallback_used is False
+    assert resolved.fallback_source is None
+    assert resolved.source == "a_share_native_social"
 
 
 def test_sync_a_share_native_social_media_succeeds_with_heat_only(monkeypatch):

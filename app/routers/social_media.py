@@ -83,7 +83,7 @@ class SocialMediaNativeSyncRequest(BaseModel):
     symbol: str = Field(..., description="股票代码")
     days_back: int = Field(30, ge=1, le=180, description="回溯天数")
     max_items: int = Field(40, ge=1, le=200, description="最大抓取条数")
-    allow_news_fallback: bool = Field(False, description="原生源为空时是否回退新闻代理")
+    allow_news_fallback: bool = Field(False, description="兼容旧字段，当前已停用；请改用独立新闻回退同步接口")
 
 
 @router.post("/save", response_model=dict)
@@ -191,8 +191,14 @@ async def sync_a_share_native_social(
     request: SocialMediaNativeSyncRequest,
     current_user: dict = Depends(get_current_user)
 ):
-    """同步 A 股原生社媒数据，优先互动问答，必要时回退新闻代理。"""
+    """同步 A 股原生社媒数据，仅使用原生一手互动/热度源。"""
     try:
+        if request.allow_news_fallback:
+            raise HTTPException(
+                status_code=400,
+                detail="A股原生社媒同步已不再内置新闻回退，请改用 /api/social-media/sync/from-news",
+            )
+
         result = await sync_a_share_native_social_media(
             symbol=request.symbol,
             current_user=current_user,
@@ -222,9 +228,8 @@ async def sync_a_share_native_social(
             },
             message=(
                 f"股票 {result.symbol} 社媒同步完成，成功写入 {result.saved_messages} 条"
-                + (f"（已回退 {result.fallback_source}）" if result.fallback_used and result.fallback_source else "")
                 if result.saved_messages > 0
-                else f"股票 {result.symbol} 未获取到可用的 A 股原生社媒数据"
+                else f"股票 {result.symbol} 未获取到可用的 A 股原生社媒数据，可单独执行新闻回退同步作为补充"
             ),
         )
     except Exception as e:
